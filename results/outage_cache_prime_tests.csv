@@ -1,0 +1,4 @@
+protocol,phase,status_code,decision,reason,cache_status,decision_source,pdp_available,latency_ms
+modbus,prime_cache_while_pdp_online,200,allow,valid_attestation_read_allowed,miss,pdp,True,30.135451
+mqtt,prime_cache_while_pdp_online,200,allow,mqtt_telemetry_publish_allowed,miss,pdp,True,31.31388
+opcua,prime_cache_while_pdp_online,200,allow,opcua_read_allowed,miss,pdp,True,35.883221

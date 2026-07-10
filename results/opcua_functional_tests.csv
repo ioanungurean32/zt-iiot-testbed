@@ -1,0 +1,11 @@
+test,status_code,decision,reason,cache_status,latency_ms
+read_cache_miss,200,allow,opcua_read_allowed,miss,35.182243
+read_cache_hit,200,allow,opcua_read_allowed,hit,18.796178
+write_allowed_maintenance,200,allow,opcua_write_allowed_no_cache,miss,23.044358
+write_denied_no_maintenance,403,deny,default_deny,none,15.058628
+method_call_allowed_maintenance,200,allow,opcua_method_call_allowed_no_cache,miss,13.404908
+write_high_risk_blocked,403,read_only,opcua_high_risk_control_blocked_read_only,none,12.047662
+method_call_high_risk_blocked,403,read_only,opcua_high_risk_method_blocked_read_only,none,14.330143
+read_critical_risk_quarantine,403,quarantine,critical_risk_quarantine,none,13.516336
+read_failed_attestation,403,deny,failed_attestation,none,14.116989
+read_expired_token,401,deny,expired_token,none,11.220353

@@ -1,0 +1,123 @@
+name: zt_iiot_testbed
+
+services:
+  modbus-server:
+    build: .
+    command: python src/modbus_server.py
+    ports:
+      - "5020:5020"
+    environment:
+      MODBUS_HOST: 0.0.0.0
+      MODBUS_PORT: 5020
+
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+
+  opcua-server:
+    build: .
+    command: python src/opcua_server.py
+    ports:
+      - "4840:4840"
+    environment:
+      OPCUA_HOST: 0.0.0.0
+      OPCUA_PORT: 4840
+
+  opa:
+    image: openpolicyagent/opa:0.63.0
+    command:
+      - run
+      - --server
+      - --addr=0.0.0.0:8181
+      - /policies
+    volumes:
+      - ./policies:/policies:ro
+    ports:
+      - "8181:8181"
+
+  modbus-pep:
+    build: .
+    command: uvicorn src.modbus_pep:app --host 0.0.0.0 --port 8080
+    ports:
+      - "8080:8080"
+    environment:
+      MODBUS_HOST: modbus-server
+      MODBUS_PORT: 5020
+      OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
+      OPA_CONNECT_TIMEOUT: "0.10"
+      OPA_READ_TIMEOUT: "0.30"
+      ZT_SECRET: dev-secret-change-me
+      RESULTS_DIR: /app/results
+      CACHE_WRITES: "false"
+      POLICY_VERSION: v0.1-modbus
+    volumes:
+      - ./results:/app/results
+    depends_on:
+      - modbus-server
+      - opa
+
+  mqtt-pep:
+    build: .
+    command: uvicorn src.mqtt_pep:app --host 0.0.0.0 --port 8081
+    ports:
+      - "8081:8081"
+    environment:
+      MQTT_HOST: mqtt-broker
+      MQTT_PORT: 1883
+      OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
+      OPA_CONNECT_TIMEOUT: "0.10"
+      OPA_READ_TIMEOUT: "0.30"
+      ZT_SECRET: dev-secret-change-me
+      RESULTS_DIR: /app/results
+      POLICY_VERSION: v0.1-mqtt
+    volumes:
+      - ./results:/app/results
+    depends_on:
+      - mqtt-broker
+      - opa
+
+  opcua-pep:
+    build: .
+    command: uvicorn src.opcua_pep:app --host 0.0.0.0 --port 8082
+    ports:
+      - "8082:8082"
+    environment:
+      OPCUA_ENDPOINT: opc.tcp://opcua-server:4840/zt-iiot/opcua/server/
+      OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
+      OPA_CONNECT_TIMEOUT: "0.10"
+      OPA_READ_TIMEOUT: "0.30"
+      ZT_SECRET: dev-secret-change-me
+      RESULTS_DIR: /app/results
+      POLICY_VERSION: v0.1-opcua
+    volumes:
+      - ./results:/app/results
+    depends_on:
+      - opcua-server
+      - opa
+
+  loadgen:
+    build: .
+    command: sleep infinity
+    environment:
+      PEP_URL: http://modbus-pep:8080
+      MQTT_PEP_URL: http://mqtt-pep:8081
+      OPCUA_PEP_URL: http://opcua-pep:8082
+      MODBUS_HOST: modbus-server
+      MODBUS_PORT: 5020
+      MQTT_HOST: mqtt-broker
+      MQTT_PORT: 1883
+      OPCUA_ENDPOINT: opc.tcp://opcua-server:4840/zt-iiot/opcua/server/
+      ZT_SECRET: dev-secret-change-me
+      RESULTS_DIR: /app/results
+    volumes:
+      - ./results:/app/results
+    depends_on:
+      - modbus-server
+      - modbus-pep
+      - mqtt-broker
+      - mqtt-pep
+      - opcua-server
+      - opcua-pep

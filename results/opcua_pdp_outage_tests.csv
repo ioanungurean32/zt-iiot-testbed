@@ -1,0 +1,3 @@
+test,status_code,decision,reason,cache_status,decision_source,pdp_available,latency_ms
+pdp_down_cached_read_allowed,200,allow,opcua_read_allowed,hit,cache,not_queried,34.480564
+pdp_down_write_fail_closed,403,deny,pdp_unavailable_fail_safe,none,pdp,False,419.428328
