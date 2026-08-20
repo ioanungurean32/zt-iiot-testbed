@@ -4,7 +4,7 @@ message: "If you use this testbed, please cite the associated manuscript and thi
 type: software
 version: "2.1.0"
 date-released: "2026-08-20"
-doi: "10.5281/zenodo.21300010"
+doi: "10.5281/zenodo.22033672"
 authors:
   - family-names: "UNGUREAN"
     given-names: "Ioan"
