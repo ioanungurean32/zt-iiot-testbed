@@ -22,24 +22,42 @@ This package contains a Zero Trust IIoT experimental testbed for three represent
 | `docs/experiment_plan_mqtt.md` | MQTT experiment plan and metrics. |
 | `docs/experiment_plan_opcua.md` | OPC UA experiment plan and metrics. |
 | `docs/testbed_description.md` | Testbed scope, claims, and limitations. |
-| `docs/token_schema.md` | JWT claim schema used by the PEPs and policies. |
-| `scripts/run_all_experiments.ps1` | PowerShell helper for running the full experiment sequence. |
+| `docs/token_schema.md` | ES256 trust-token schema and key management. |
+| `scripts/run_full_evaluation.ps1` | Single orchestrator for the full evaluation. |
 
 ## Source code
 
 | Path | Purpose |
 |---|---|
-| `src/modbus_pep.py` | Modbus/TCP Policy Enforcement Point. |
-| `src/mqtt_pep.py` | MQTT Policy Enforcement Point. |
-| `src/opcua_pep.py` | OPC UA Policy Enforcement Point. |
-| `src/modbus_server.py` | Simulated Modbus/TCP server. |
-| `src/opcua_server.py` | Minimal OPC UA server. |
-| `src/auth.py` | JWT minting and verification helpers. |
+| `src/modbus_pep.py`, `src/mqtt_pep.py`, `src/opcua_pep.py` | Application-level PEP gateways (also run as pass-through baselines via `PASSTHROUGH_MODE`). |
+| `src/modbus_proxy_pep.py` | Transparent native-wire Modbus/TCP PEP: in-line TCP proxy that parses function codes from the wire and enforces policy on unmodified clients (also a native pass-through baseline via `PASSTHROUGH_MODE`). |
+| `src/modbus_server.py`, `src/opcua_server.py` | Simulated Modbus/TCP and OPC UA servers (`modbus_server.py` also serves the protected `modbus-plc`). |
+| `src/auth.py` | ES256 trust-token minting and verification (asymmetric). |
 | `src/metrics.py` | CSV metrics logging. |
-| `policies/*.rego` | OPA/Rego authorization policies. |
-| `loadgen/*.py` | Baseline, benchmark, functional, cache-priming, and outage tests. |
-| `tools/mint_token.py` | CLI utility to mint JWTs for manual testing. |
+| `src/resource_stats.py` | Per-process CPU/RSS for the `/resource` endpoint. |
+| `policies/*.rego` | OPA/Rego authorization policies (with `context_dependent` flags). |
+| `tools/generate_keys.py` | Generate the ES256 key pair (private = issuer, public = PEPs). |
+| `tools/mint_token.py` | CLI utility to mint a token for manual testing. |
+
+## Evaluation harness (`loadgen/`)
+
+| Path | Purpose |
+|---|---|
+| `loadgen/harness.py` | Matched-target latency harness (direct/passthrough/pep), trials, warm-up, concurrency, workload profiles. |
+| `loadgen/analyze.py` | Statistics (mean ± 95% CI, percentiles, jitter) and isolated security overhead. |
+| `loadgen/saturation_sweep.py` | Concurrency/throughput/saturation sweep with PEP CPU/RSS and recovery. |
+| `loadgen/pdp_outage_lifecycle.py` | PDP-unavailability lifecycle (shutdown/partition phases). |
+| `loadgen/cache_invalidation_tests.py` | Cache-invalidation correctness (context/risk). |
+| `loadgen/token_security_tests.py` | ES256 token-security correctness. |
+| `loadgen/{pep,mqtt,opcua}_tests.py` | Functional allow/deny tests per protocol (HTTP gateways). |
+| `loadgen/modbus_native_harness.py` | Matched native-wire latency (`native-direct`/`native-passthrough`/`native-pep`) for the transparent Modbus PEP. |
+| `loadgen/modbus_proxy_tests.py` | Transparent-PEP functional enforcement on the wire + non-bypassability (bypass) check. |
 
 ## Generated outputs
 
-Experiment outputs are written to `results/` and are published alongside the code for reproducibility (baseline and PEP-benchmark CSVs, PEP internal metrics, functional-test results, PDP-outage-test results, and the aggregated `summary.csv`).
+Experiment outputs are written to `results/` and are published alongside the code
+for reproducibility: raw per-request latency (`raw_*.csv`), aggregated statistics
+(`summary_stats.csv`), isolated security overhead (`security_overhead.csv`),
+saturation sweeps (`saturation_*.csv`), correctness suites
+(`cache_invalidation_tests.csv`, `token_security_tests.csv`), functional results,
+and the PDP-outage lifecycle (`pdp_outage_lifecycle.csv`).

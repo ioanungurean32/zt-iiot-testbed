@@ -1,8 +1,11 @@
-# ZT-IIoT Multi-Protocol Testbed
+# ZT-IIoT Multi-Protocol Testbed (v2.1.0)
 
-Protocol-aware Zero Trust IIoT prototype for **Modbus/TCP**, **MQTT**, and **OPC UA**.
-
-This testbed supports experimental evaluation of latency, jitter, cache hit/cache miss behavior, token verification overhead, PDP outage handling, and fail-safe authorization for representative IIoT protocol operations.
+Zero Trust IIoT prototype for **Modbus/TCP**, **MQTT**, and **OPC UA**, with
+matched baselines that isolate the security-processing cost, asymmetric (ES256)
+trust tokens, a concurrency/saturation sweep, and a PDP-outage lifecycle
+evaluation. Version 2.1.0 adds a **transparent native-wire protocol-aware Modbus/TCP
+PEP** that parses function codes directly from the wire, enforces policy on
+**unmodified** clients, and demonstrates non-bypassability.
 
 ## Authors and affiliation
 
@@ -13,13 +16,22 @@ This testbed supports experimental evaluation of latency, jitter, cache hit/cach
 
 ## Scope
 
-The prototype implements three vertical slices:
+Three protocol vertical slices, each: client/load generator → PEP → OPA/PDP →
+simulated server/broker. Two enforcement styles are provided:
 
-1. **Modbus/TCP**: client/load generator → Modbus PEP → OPA/PDP → simulated Modbus server.
-2. **MQTT**: publisher/load generator → MQTT PEP → OPA/PDP → Mosquitto broker.
-3. **OPC UA**: client/load generator → OPC UA PEP → OPA/PDP → minimal OPC UA server.
+- **Application-level request-mediation gateways** (HTTP) for Modbus/TCP, MQTT,
+  and OPC UA: attributes are supplied through the gateway API rather than parsed
+  from the native wire, and non-bypassability is assumed. These remain the basis
+  of the multi-protocol latency, workload, saturation, and outage experiments.
+- **Transparent native-wire Modbus/TCP PEP** (v2.1.0): an in-line TCP proxy that
+  unmodified pymodbus clients connect to as if it were the PLC. It parses the
+  Modbus function code/address from the wire, derives the action from the parsed
+  operation (not a client field), enforces the same ABAC/OPA policy, and forwards
+  only allowed frames. The protected device sits on an internal network reachable
+  only through the proxy, so non-bypassability is **demonstrated, not assumed**.
 
-The PEPs are application-level gateways intended for controlled academic experiments. They are not transparent industrial proxies and are not production-certified OT gateways.
+Neither is a production-certified OT gateway. See `docs/testbed_description.md`
+for the full list of what the testbed does and does not claim.
 
 ## Services
 
@@ -32,80 +44,78 @@ The PEPs are application-level gateways intended for controlled academic experim
 | `modbus-pep` | 8080 | Modbus/TCP Policy Enforcement Point |
 | `mqtt-pep` | 8081 | MQTT Policy Enforcement Point |
 | `opcua-pep` | 8082 | OPC UA Policy Enforcement Point |
-| `loadgen` | - | Experiment and benchmark scripts |
+| `modbus-gw` | 8090 | Modbus pass-through baseline (enforcement disabled) |
+| `mqtt-gw` | 8091 | MQTT pass-through baseline |
+| `opcua-gw` | 8092 | OPC UA pass-through baseline |
+| `modbus-plc` | (internal) | Protected Modbus device, reachable only via the transparent proxy |
+| `modbus-proxy-pep` | 5030 / 8083 | Transparent native-wire Modbus PEP (wire port / admin) |
+| `modbus-proxy-gw` | 5031 | Transparent native pass-through baseline (`PASSTHROUGH_MODE`) |
+| `loadgen` | - | Load generator, harness, analysis, and tests |
+
+The pass-through gateways run the same PEP images with `PASSTHROUGH_MODE=true`
+(no token verification, cache, or policy), giving a matched baseline whose
+difference from the full PEP isolates the incremental Zero-Trust cost.
 
 ## Quick start
 
 ```powershell
-docker compose up --build -d modbus-server mqtt-broker opcua-server opa modbus-pep mqtt-pep opcua-pep
+docker compose build
+docker compose run --rm loadgen python tools/generate_keys.py   # ES256 key pair (mandatory)
+docker compose up -d
 ```
+
+Key generation is mandatory: the issuer holds the private key and each PEP holds
+only the public verification key; without it, every token is rejected (HTTP 401).
 
 Health checks:
 
 ```powershell
-curl.exe http://localhost:8080/health
-curl.exe http://localhost:8081/health
-curl.exe http://localhost:8082/health
-curl.exe http://localhost:8181/health
+curl.exe http://localhost:8080/health   # PEPs: 8080/8081/8082
+curl.exe http://localhost:8090/health   # gateways: 8090/8091/8092
+curl.exe http://localhost:8181/health   # OPA
 ```
 
-## Run experiments
-
-### Modbus/TCP
+## Run the full evaluation
 
 ```powershell
-docker compose run --rm loadgen python loadgen/baseline_modbus.py --n 1000
-docker compose run --rm loadgen python loadgen/benchmark_pep.py --n 1000 --clear-cache
-docker compose run --rm loadgen python loadgen/pep_tests.py
+powershell -ExecutionPolicy Bypass -File .\scripts\run_full_evaluation.ps1
 ```
 
-### MQTT
+Runs correctness/functional tests, the matched-baseline latency matrix (10 trials
+with confidence intervals), workload-diversity profiles, the concurrency/
+saturation sweep, the **transparent native-wire Modbus PEP** functional and
+non-bypassability tests plus its matched native latency matrix
+(`native-direct` / `native-passthrough` / `native-pep`), the latency/overhead
+analysis, and the PDP-outage lifecycle (container-shutdown and network-partition).
+Raw per-request data and summaries are written to `results/`.
 
-```powershell
-docker compose run --rm loadgen python loadgen/baseline_mqtt.py --n 1000
-docker compose run --rm loadgen python loadgen/benchmark_mqtt_pep.py --n 1000 --clear-cache
-docker compose run --rm loadgen python loadgen/mqtt_tests.py
-```
-
-### OPC UA
-
-```powershell
-docker compose run --rm loadgen python loadgen/baseline_opcua.py --n 1000
-docker compose run --rm loadgen python loadgen/benchmark_opcua_pep.py --n 1000 --clear-cache
-docker compose run --rm loadgen python loadgen/opcua_tests.py
-```
-
-### Full experiment script on Windows
-
-```powershell
-.\scripts\run_all_experiments.ps1
-```
+Individual experiments (harness, saturation, outage phases) and their options are
+documented in `docs/experiment_reproduction.md`.
 
 ## Result files
 
-Generated outputs are written to `results/*.csv`.
+Generated outputs are written to `results/*.csv`:
 
 | File | Meaning |
 |---|---|
-| `baseline_modbus.csv` | Direct Modbus/TCP latency baseline |
-| `pep_benchmark.csv` | Modbus/TCP latency through PEP |
-| `baseline_mqtt.csv` | Direct MQTT publish latency baseline |
-| `mqtt_pep_benchmark.csv` | MQTT latency through PEP |
-| `baseline_opcua.csv` | Direct OPC UA read latency baseline |
-| `opcua_pep_benchmark.csv` | OPC UA latency through PEP |
-| `pep_metrics.csv` | Internal PEP timing metrics across protocols |
-| `*_functional_tests.csv` | Functional authorization tests |
-| `outage_cache_prime_tests.csv` | Cache-priming rows used before PDP outage tests |
-| `*_pdp_outage_tests.csv` | Control-plane outage/fail-safe tests |
-| `summary.csv` | Aggregated mean/p50/p95/p99/jitter and cache/decision counts per input file, written by `loadgen/summarize_results.py` |
+| `raw_*.csv` | Raw per-request latency for each matched configuration/profile/concurrency (HTTP and `native-*` targets) |
+| `summary_stats.csv` | mean ± 95% CI, p50/p95/p99, jitter, cache-hit ratio per configuration |
+| `security_overhead.csv` | Isolated security overhead (pep − passthrough) with CI; `pep_target` distinguishes HTTP (`pep`) from native-wire (`native-pep`) |
+| `saturation_*.csv` | Throughput, tail latency, PEP CPU/RSS, recovery per concurrency level |
+| `cache_invalidation_tests.csv` | Context/risk cache-invalidation correctness |
+| `token_security_tests.csv` | ES256 token-security correctness |
+| `modbus_proxy_tests.csv` | Transparent native-wire PEP functional + non-bypassability results |
+| `modbus_proxy_metrics.csv` | Per-request internals of the transparent Modbus PEP (token/cache/forward timing) |
+| `*_functional_tests.csv` | Functional authorization results per protocol (HTTP gateways) |
+| `pdp_outage_lifecycle.csv` | Outage lifecycle (shutdown/partition, fail-closed stats, recovery) |
 
 ## Documentation
 
-- `docs/experiment_reproduction.md`: commands for reproducing the reported experiments.
-- `docs/experiment_plan_modbus.md`, `docs/experiment_plan_mqtt.md`, `docs/experiment_plan_opcua.md`: per-protocol experiment plans, policy summaries, and metrics.
-- `docs/testbed_description.md`: scope, claims, and limitations.
-- `docs/token_schema.md`: JWT claim schema used by the PEPs and policies.
-- `MANIFEST.md`: full file manifest.
+- `docs/experiment_reproduction.md` — full reproduction workflow and definitions.
+- `docs/experiment_plan_{modbus,mqtt,opcua}.md` — per-protocol policy and endpoints.
+- `docs/testbed_description.md` — scope, claims, and limitations.
+- `docs/token_schema.md` — ES256 trust-token schema and key management.
+- `MANIFEST.md` — full file manifest.
 
 ## Citation
 
@@ -114,40 +124,3 @@ Please cite this testbed using the metadata in `CITATION.cff`.
 ## License
 
 MIT License. See `LICENSE`.
-
-## Note on PDP outage tests
-
-Version v0.1.4 makes the outage experiments deterministic by adding an explicit cache-priming step before OPA/PDP is stopped:
-
-```powershell
-docker compose run --rm loadgen python loadgen/prime_outage_cache.py --protocol modbus
-docker compose run --rm loadgen python loadgen/prime_outage_cache.py --protocol mqtt
-docker compose run --rm loadgen python loadgen/prime_outage_cache.py --protocol opcua
-```
-
-The PEP services use short, configurable PDP client timeouts to return fail-closed decisions quickly when OPA/PDP is intentionally stopped:
-
-- `OPA_CONNECT_TIMEOUT=0.10`
-- `OPA_READ_TIMEOUT=0.30`
-
-Cached read/telemetry operations are served from the local PEP cache, while write/command operations without a current PDP decision are denied fail-closed.
-
-
-## MQTT benchmark note
-
-The MQTT PEP uses a persistent MQTT client and a persistent Paho network loop. This avoids per-request connect/loop startup overhead and makes MQTT PEP latency measurements comparable with the Modbus/TCP and OPC UA benchmark paths.
-
-
-### Troubleshooting: `prime_outage_cache.py` not found in `/app/loadgen`
-
-If Docker reports `python: can't open file '/app/loadgen/prime_outage_cache.py'`, the local folder may be correct but Docker is reusing an older `loadgen` image. Rebuild the load generator explicitly:
-
-```powershell
-docker compose build --no-cache loadgen
-```
-
-Then rerun:
-
-```powershell
-powershell.exe -ExecutionPolicy Bypass -File .\scripts\run_all_experiments.ps1
-```

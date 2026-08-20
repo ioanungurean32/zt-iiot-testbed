@@ -1,9 +1,9 @@
 test,status_code,decision,reason,cache_status,latency_ms
-read_allowed_cache_miss,200,allow,valid_attestation_read_allowed,hit,21.539422
-read_allowed_cache_hit,200,allow,valid_attestation_read_allowed,hit,11.448435
-write_allowed,200,allow,maintenance_write_allowed_no_write_cache,miss,19.648719
-write_denied_no_maintenance_window,403,deny,default_deny,none,14.666081
-write_high_risk_read_only,403,read_only,high_risk_write_blocked_read_only,none,13.404745
-read_critical_risk_quarantine,403,quarantine,critical_risk_quarantine,none,12.519249
-read_failed_attestation,403,deny,failed_attestation,none,14.74889
-read_expired_token,401,deny,expired_token,none,11.494339
+read_allowed_cache_miss,200,allow,valid_attestation_read_allowed,miss,33.3811
+read_allowed_cache_hit,200,allow,valid_attestation_read_allowed,hit,19.724491
+write_allowed,200,allow,maintenance_write_allowed_no_write_cache,miss,22.698476
+write_denied_no_maintenance_window,403,deny,default_deny,none,19.255446
+write_high_risk_read_only,403,read_only,high_risk_write_blocked_read_only,none,21.703881
+read_critical_risk_quarantine,403,quarantine,critical_risk_quarantine,none,23.069112
+read_failed_attestation,403,deny,failed_attestation,none,20.323648
+read_expired_token,401,deny,expired_token,none,16.786109

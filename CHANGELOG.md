@@ -1,5 +1,94 @@
 # Changelog
 
+## v2.1.0
+
+Adds a genuinely transparent, native-wire protocol-aware PEP for Modbus/TCP: an
+in-line proxy that parses the Modbus function code from the wire, enforces policy
+on unmodified clients, and demonstrates that direct client-to-device access
+cannot bypass enforcement. The application-level HTTP gateways of v2.0.0 are
+retained unchanged; the transparent proxy is added alongside them.
+
+**Transparent native-wire Modbus/TCP PEP (new)**
+- `src/modbus_proxy_pep.py`: an in-line transparent TCP proxy that unmodified
+  pymodbus clients connect to as if it were the PLC. It parses the Modbus
+  function code and register address directly from the wire (MBAP header + PDU),
+  **derives the action from the parsed function code rather than a client-supplied
+  field** (closing the attribute-to-operation binding gap), evaluates the same
+  ABAC/OPA policy with the same decision cache and fail-safe behaviour as the
+  HTTP PEP, forwards only allowed frames to the upstream device, and answers a
+  denied/degraded request with a native Modbus exception response. Supports
+  `PASSTHROUGH_MODE=true` for a native pass-through proxy baseline. Trust tokens
+  remain asymmetric ES256 (the proxy holds only the public key); identity and
+  operational context are provisioned out-of-band via an admin side channel
+  (`/admin/token`, `/admin/context`, `/cache/clear`, `/health`, `/resource`),
+  never trusted from the Modbus wire.
+
+**Non-bypassability (demonstrated, not assumed)**
+- New `modbus-plc` service on an internal-only Docker network (`plc_net`),
+  reachable exclusively through the transparent proxy. `loadgen/modbus_proxy_tests.py`
+  includes a bypass check confirming a direct client-to-device connection is
+  refused.
+
+**Evaluation additions**
+- `loadgen/modbus_native_harness.py`: matched native-wire latency for
+  `native-direct` / `native-passthrough` / `native-pep` (trials, warm-up,
+  steady/cold profiles), written as `raw_modbus_native-*_*.csv` in the harness
+  schema. `loadgen/analyze.py` now also pairs `native-pep` with
+  `native-passthrough` to report the isolated native-wire security overhead
+  (`security_overhead.csv` gains `pep_target`/`baseline_target` columns).
+- `loadgen/modbus_proxy_tests.py`: functional policy enforcement on the wire
+  (authorized read, maintenance write, out-of-window deny, high-risk degrade,
+  critical-risk quarantine, failed attestation, expired token) plus the
+  non-bypassability check → `results/modbus_proxy_tests.csv`. The proxy also
+  writes per-request internals to `results/modbus_proxy_metrics.csv`.
+- New Compose services `modbus-plc`, `modbus-proxy-pep` (port 5030, admin 8083),
+  and `modbus-proxy-gw` (port 5031, `PASSTHROUGH_MODE`); `scripts/run_full_evaluation.ps1`
+  runs the transparent-PEP functional/bypass tests and the native latency matrix.
+
+Re-run `scripts/run_full_evaluation.ps1` to regenerate all results (the run
+clears `results/` first); the transparent-PEP data is produced only by this
+version.
+
+## v2.0.0
+
+Major rework of the implementation and evaluation. Breaking changes to token
+signing, service topology, and the experiment workflow.
+
+**Security / tokens**
+- Switched trust tokens from symmetric HS256 to **asymmetric ES256 (EC P-256)**:
+  the issuer holds the private key and each PEP holds only the public
+  verification key, so a compromised PEP cannot forge tokens. Added algorithm
+  pinning, issuer/audience validation, and a per-token `jti`. Added
+  `tools/generate_keys.py` and `loadgen/token_security_tests.py`. `ZT_SECRET` is
+  removed; keys are provided via `ZT_PRIVATE_KEY_FILE` / `ZT_PUBLIC_KEY_FILE`.
+  Requires the `cryptography` package.
+
+**Cache correctness**
+- The decision cache key now binds the operational-context (environment)
+  attributes and the policy version; environment-dependent policy decisions carry
+  a `context_dependent` flag and are structurally non-cacheable regardless of TTL
+  (mechanism-enforced, not a policy convention). Cache operations are
+  lock-serialized. Added `loadgen/cache_invalidation_tests.py`.
+
+**Evaluation harness (new)**
+- `loadgen/harness.py`: matched targets (direct / passthrough / pep), independent
+  trials, warm-up exclusion, concurrency, and workload profiles
+  (steady/cold/mixed/hit-ratio); writes raw per-request data.
+- `loadgen/analyze.py`: mean ± 95% CI, per-distribution percentiles, jitter, and
+  the isolated security overhead (pep − passthrough).
+- `loadgen/saturation_sweep.py`: concurrency sweep with throughput, tail latency,
+  PEP CPU/RSS (via a new `/resource` endpoint), and recovery.
+- `loadgen/pdp_outage_lifecycle.py`: full outage lifecycle (shutdown and network
+  partition; cached-read, fail-closed statistics, concurrent, expiry, recovery).
+- Added pass-through baseline services `modbus-gw`/`mqtt-gw`/`opcua-gw`
+  (`PASSTHROUGH_MODE=true`) and `src/resource_stats.py`.
+
+**Scripts / docs**
+- Consolidated `scripts/` to a single orchestrator, `run_full_evaluation.ps1`
+  (removed `run_all_experiments.ps1`).
+- Updated all documentation for the new workflow; relabeled the enforcement
+  mechanism as application-level request mediation.
+
 ## v1.4.3
 
 - Added a critical-risk (`risk_score > 75`) functional test case to `loadgen/pep_tests.py`, `loadgen/mqtt_tests.py`, and `loadgen/opcua_tests.py`, exercising the `critical_risk_quarantine` policy rule (implemented in `policies/modbus.rego`, shared across all three protocols) that was previously never validated by any test.

@@ -1,7 +1,13 @@
-.PHONY: up down logs clean modbus mqtt opcua summarize
+.PHONY: build keys up down logs clean tests analyze evaluate
+
+build:
+	docker compose build
+
+keys:
+	docker compose run --rm loadgen python tools/generate_keys.py
 
 up:
-	docker compose up --build -d
+	docker compose up -d
 
 down:
 	docker compose down
@@ -12,23 +18,22 @@ logs:
 clean:
 	rm -f results/*.csv
 
-modbus:
-	docker compose up --build -d modbus-server opa modbus-pep
-	docker compose run --rm loadgen python loadgen/baseline_modbus.py --n 1000
-	docker compose run --rm loadgen python loadgen/benchmark_pep.py --n 1000 --clear-cache
+# Correctness and functional tests.
+tests:
+	docker compose run --rm loadgen python loadgen/cache_invalidation_tests.py
+	docker compose run --rm loadgen python loadgen/token_security_tests.py
 	docker compose run --rm loadgen python loadgen/pep_tests.py
-
-mqtt:
-	docker compose up --build -d mqtt-broker opa mqtt-pep
-	docker compose run --rm loadgen python loadgen/baseline_mqtt.py --n 1000
-	docker compose run --rm loadgen python loadgen/benchmark_mqtt_pep.py --n 1000 --clear-cache
 	docker compose run --rm loadgen python loadgen/mqtt_tests.py
-
-opcua:
-	docker compose up --build -d opcua-server opa opcua-pep
-	docker compose run --rm loadgen python loadgen/baseline_opcua.py --n 1000
-	docker compose run --rm loadgen python loadgen/benchmark_opcua_pep.py --n 1000 --clear-cache
 	docker compose run --rm loadgen python loadgen/opcua_tests.py
 
-summarize:
-	docker compose run --rm loadgen python loadgen/summarize_results.py /app/results/baseline_modbus.csv /app/results/pep_benchmark.csv /app/results/baseline_mqtt.csv /app/results/mqtt_pep_benchmark.csv /app/results/baseline_opcua.csv /app/results/opcua_pep_benchmark.csv /app/results/pep_metrics.csv
+# Aggregate raw harness data into statistics and isolated overhead.
+analyze:
+	docker compose run --rm loadgen python loadgen/analyze.py
+
+# Full evaluation (matched baselines, workload, saturation, outage lifecycle).
+# On Windows use: powershell -ExecutionPolicy Bypass -File .\scripts\run_full_evaluation.ps1
+evaluate: build keys up
+	docker compose run --rm loadgen python loadgen/harness.py --protocol modbus --target direct      --profile steady --n 1000 --warmup 100 --trials 10
+	docker compose run --rm loadgen python loadgen/harness.py --protocol modbus --target passthrough --profile steady --n 1000 --warmup 100 --trials 10
+	docker compose run --rm loadgen python loadgen/harness.py --protocol modbus --target pep         --profile steady --n 1000 --warmup 100 --trials 10 --clear-cache
+	docker compose run --rm loadgen python loadgen/analyze.py

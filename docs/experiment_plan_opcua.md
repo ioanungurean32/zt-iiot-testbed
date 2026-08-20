@@ -1,18 +1,24 @@
 # OPC UA Experiment Plan
 
-This vertical slice evaluates representative OPC UA read/write/method authorization through the ZT-IIoT PEP.
+The OPC UA vertical slice (read/write/method authorization). For the full,
+current reproduction workflow see `docs/experiment_reproduction.md`; run
+everything via `scripts/run_full_evaluation.ps1`.
 
 ## Architecture
 
-OPC UA client/loadgen -> OPC UA PEP -> JWT verification + decision cache + OPA/PDP -> OPC UA server
+OPC UA client/loadgen -> OPC UA PEP -> ES256 token verification + decision cache + OPA/PDP -> OPC UA server
 
-The OPC UA PEP is an application-level gateway used for controlled experiments. It exposes HTTP endpoints:
+The OPC UA PEP is an application-level request-mediation gateway (not a
+transparent proxy). A matched pass-through baseline (`opcua-gw`, port 8092) runs
+the same image with enforcement disabled to isolate the security overhead. HTTP
+endpoints:
 
 - `POST /opcua/read`
 - `POST /opcua/write`
 - `POST /opcua/call-method`
 - `POST /cache/clear`
 - `GET /health`
+- `GET /resource`
 
 ## Policy summary
 
@@ -26,62 +32,45 @@ The OPC UA PEP is an application-level gateway used for controlled experiments. 
 
 ## Experiments
 
-Run:
+The full matched-baseline, workload, saturation, and outage experiments are run
+via `scripts/run_full_evaluation.ps1` (see `docs/experiment_reproduction.md`).
+OPC UA-only examples:
 
-```powershell
-docker compose up --build -d opcua-server opa opcua-pep
-```
-
-Health check:
-
-```powershell
-curl.exe http://localhost:8082/health
-```
-
-Functional tests:
+Functional test:
 
 ```powershell
 docker compose run --rm loadgen python loadgen/opcua_tests.py
 ```
 
-Direct baseline:
+Matched-baseline latency (direct / passthrough / pep), 10 trials:
 
 ```powershell
-docker compose run --rm loadgen python loadgen/baseline_opcua.py --n 1000
+docker compose run --rm loadgen python loadgen/harness.py --protocol opcua --target direct      --profile steady --n 1000 --warmup 100 --trials 10
+docker compose run --rm loadgen python loadgen/harness.py --protocol opcua --target passthrough --profile steady --n 1000 --warmup 100 --trials 10
+docker compose run --rm loadgen python loadgen/harness.py --protocol opcua --target pep         --profile steady --n 1000 --warmup 100 --trials 10 --clear-cache
 ```
 
-PEP benchmark:
+Saturation sweep:
 
 ```powershell
-docker compose run --rm loadgen python loadgen/benchmark_opcua_pep.py --n 1000 --clear-cache
-```
-
-PDP outage:
-
-```powershell
-docker compose start opa
-curl.exe -X POST http://localhost:8082/cache/clear
-docker compose run --rm loadgen python loadgen/prime_outage_cache.py --protocol opcua
-docker compose stop opa
-docker compose run --rm --no-deps loadgen python loadgen/opcua_pdp_outage_test.py
-docker compose start opa
+docker compose run --rm loadgen python loadgen/saturation_sweep.py --protocol opcua --profile steady --levels 1,2,5,10,20,50 --n 500 --warmup 50
 ```
 
 ## Output files
 
-- `results/baseline_opcua.csv`
-- `results/opcua_pep_benchmark.csv`
+- `results/raw_opcua_<target>_<profile>_c<concurrency>.csv`
+- `results/saturation_opcua_steady.csv`
 - `results/opcua_functional_tests.csv`
-- `results/outage_cache_prime_tests.csv`
-- `results/opcua_pdp_outage_tests.csv`
-- `results/pep_metrics.csv`
+- `results/summary_stats.csv`, `results/security_overhead.csv` (from `analyze.py`)
 
 ## Metrics
 
-- client-observed latency: `latency_ms`
-- PEP internal latency: `end_to_end_latency_ms`
-- token verification: `token_verification_ms`
-- cache lookup: `cache_lookup_ms`
-- PDP decision time: `pdp_decision_ms`
-- OPC UA forwarding time: `opcua_forward_ms`
-- cache hit/miss behavior: `cache_status`
+- client-observed latency per request: `latency_ms` (raw), aggregated to
+  mean ± 95% CI, p50/p95/p99, and jitter (standard deviation) by `analyze.py`.
+- cache hit/miss behavior: `cache_status`.
+- isolated security overhead: `pep − passthrough` mean difference.
+- throughput and PEP CPU/RSS under load: from the saturation sweep.
+
+Note: the OPC UA baseline opens a session per request, so its native latency is
+higher than Modbus/MQTT; the passthrough-vs-pep comparison remains valid because
+both use the same OPC UA PEP forwarding path.

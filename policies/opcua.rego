@@ -17,10 +17,13 @@ decision = {
 
 # OPC UA write: actuator/setpoint writes require a maintenance engineer,
 # valid attestation, low risk, and an active maintenance window.
+# context_dependent: reads input.environment.maintenance_window (mechanism-
+# enforced non-caching at the PEP regardless of TTL).
 decision = {
   "allow": true,
   "mode": "allow",
   "ttl": 0,
+  "context_dependent": true,
   "reason": "opcua_write_allowed_no_cache"
 } {
   input.protocol == "opcua"
@@ -33,10 +36,12 @@ decision = {
 }
 
 # OPC UA method invocation: representative control method authorization.
+# context_dependent: reads input.environment.maintenance_window.
 decision = {
   "allow": true,
   "mode": "allow",
   "ttl": 0,
+  "context_dependent": true,
   "reason": "opcua_method_call_allowed_no_cache"
 } {
   input.protocol == "opcua"

@@ -25,6 +25,7 @@ from pymodbus.client import ModbusTcpClient
 
 from src.auth import TokenError, decode_authorization_header
 from src.metrics import log_metric, metrics_path
+from src.resource_stats import resource_stats
 
 app = FastAPI(title="ZT-IIoT Modbus PEP", version="0.1")
 
@@ -35,6 +36,13 @@ OPA_CONNECT_TIMEOUT = float(os.getenv("OPA_CONNECT_TIMEOUT", "0.25"))
 OPA_READ_TIMEOUT = float(os.getenv("OPA_READ_TIMEOUT", "0.75"))
 POLICY_VERSION = os.getenv("POLICY_VERSION", "v0.1-modbus")
 CACHE_WRITES = os.getenv("CACHE_WRITES", "false").lower() == "true"
+# Pass-through baseline mode: when enabled, the gateway
+# performs the identical HTTP intake and native-protocol translation/forwarding
+# path as the full PEP, but skips token verification, cache lookup, and OPA
+# policy evaluation. Running the same image with this flag on a separate port
+# yields a matched baseline whose difference from the full PEP isolates the
+# incremental Zero-Trust security-processing cost.
+PASSTHROUGH_MODE = os.getenv("PASSTHROUGH_MODE", "false").lower() == "true"
 
 # requests' timeout=(connect, read) tuple does not bound DNS resolution
 # (socket.getaddrinfo), which can block for several seconds when the OPA
@@ -45,6 +53,11 @@ _OPA_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name
 
 # key -> (expires_at, decision_dict)
 DECISION_CACHE: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+# The decision cache is read and written from FastAPI's worker thread pool, so
+# concurrent requests can touch it simultaneously. This lock serializes the
+# check-then-act cache operations (lookup/evict/insert) so concurrent-load
+# experiments measure a well-defined cache, not a data race.
+CACHE_LOCK = threading.Lock()
 
 # Persistent Modbus/TCP client used by the PEP. Reconnecting for every request
 # adds a full TCP handshake per call and makes PEP-mediated latency incomparable
@@ -80,7 +93,18 @@ def now_ms() -> float:
     return time.perf_counter() * 1000.0
 
 
-def cache_key(subject: Dict[str, Any], resource: Dict[str, Any], action: str) -> str:
+def env_context(environment: Dict[str, Any]) -> str:
+    """Deterministic serialization of the operational-context (environment)
+    attributes that participate in policy decisions. Binding this into the
+    cache key makes context invalidation a PEP mechanism rather than a
+    policy-authoring convention: a change in maintenance_window, process
+    state, emergency state, or zone-alert level yields a different key, so a
+    decision computed under one operational context can never be reused under
+    a different one, independent of the decision's TTL."""
+    return "|".join(f"{k}={environment[k]}" for k in sorted(environment or {}))
+
+
+def cache_key(subject: Dict[str, Any], resource: Dict[str, Any], action: str, environment: Dict[str, Any]) -> str:
     risk_bucket = int(subject.get("risk_score", 100)) // 25
     return ":".join(
         [
@@ -91,29 +115,39 @@ def cache_key(subject: Dict[str, Any], resource: Dict[str, Any], action: str) ->
             action,
             str(resource.get("function_code")),
             str(resource.get("register_address")),
+            env_context(environment),
             POLICY_VERSION,
         ]
     )
 
 
 def get_cached_decision(key: str) -> Optional[Dict[str, Any]]:
-    entry = DECISION_CACHE.get(key)
-    if not entry:
-        return None
-    expires_at, decision = entry
-    if time.time() >= expires_at:
-        DECISION_CACHE.pop(key, None)
-        return None
-    return decision
+    with CACHE_LOCK:
+        entry = DECISION_CACHE.get(key)
+        if not entry:
+            return None
+        expires_at, decision = entry
+        if time.time() >= expires_at:
+            DECISION_CACHE.pop(key, None)
+            return None
+        return decision
 
 
 def store_cached_decision(key: str, decision: Dict[str, Any], action: str) -> None:
     if action == "write" and not CACHE_WRITES:
         return
+    # Context-dependent decisions are structurally non-cacheable: the policy
+    # engine flags any rule that reads an environment attribute, and the PEP
+    # refuses to cache such a decision regardless of its TTL. This is a
+    # mechanism-enforced invariant, not a reliance on the policy author setting
+    # ttl = 0 for every context-dependent rule.
+    if decision.get("context_dependent"):
+        return
     ttl = int(decision.get("ttl", 0) or 0)
     if ttl <= 0:
         return
-    DECISION_CACHE[key] = (time.time() + ttl, decision)
+    with CACHE_LOCK:
+        DECISION_CACHE[key] = (time.time() + ttl, decision)
 
 
 def _post_to_opa(opa_input: Dict[str, Any]) -> Dict[str, Any]:
@@ -151,7 +185,7 @@ def build_opa_input(claims: Dict[str, Any], resource: Dict[str, Any], action: st
 
 
 def evaluate_request(opa_input: Dict[str, Any]) -> Tuple[Dict[str, Any], str, Any, float, str]:
-    key = cache_key(opa_input["subject"], opa_input["resource"], opa_input["action"])
+    key = cache_key(opa_input["subject"], opa_input["resource"], opa_input["action"], opa_input.get("environment", {}))
 
     t_cache = now_ms()
     cached = get_cached_decision(key)
@@ -220,17 +254,24 @@ def common_pipeline(
     status_code = 403
 
     try:
-        t_token = now_ms()
-        claims = decode_authorization_header(authorization)
-        token_verification_ms = now_ms() - t_token
+        if PASSTHROUGH_MODE:
+            # Baseline: identical intake/forwarding path, no security processing.
+            cache_status = "passthrough"
+            decision = {"allow": True, "mode": "passthrough", "reason": "passthrough_baseline", "ttl": 0}
+            decision_source = "passthrough"
+            pdp_available = "n/a"
+        else:
+            t_token = now_ms()
+            claims = decode_authorization_header(authorization)
+            token_verification_ms = now_ms() - t_token
 
-        opa_input = build_opa_input(claims, resource, action, environment)
-        decision, cache_status, pdp_available, cache_lookup_ms, decision_source = evaluate_request(opa_input)
-        pdp_decision_ms = float(decision.pop("_pdp_decision_ms", 0.0)) if cache_status == "miss" else 0.0
+            opa_input = build_opa_input(claims, resource, action, environment)
+            decision, cache_status, pdp_available, cache_lookup_ms, decision_source = evaluate_request(opa_input)
+            pdp_decision_ms = float(decision.pop("_pdp_decision_ms", 0.0)) if cache_status == "miss" else 0.0
 
-        if not decision.get("allow", False):
-            status_code = 403
-            raise HTTPException(status_code=status_code, detail={"decision": decision, "request_id": request_id})
+            if not decision.get("allow", False):
+                status_code = 403
+                raise HTTPException(status_code=status_code, detail={"decision": decision, "request_id": request_id})
 
         t_modbus = now_ms()
         modbus_result = forward_fn()
@@ -311,7 +352,15 @@ def health() -> Dict[str, Any]:
         "policy_version": POLICY_VERSION,
         "metrics_path": str(metrics_path()),
         "cache_entries": len(DECISION_CACHE),
+        "passthrough_mode": PASSTHROUGH_MODE,
     }
+
+
+@app.get("/resource")
+def resource() -> Dict[str, Any]:
+    stats = resource_stats()
+    stats["cache_entries"] = len(DECISION_CACHE)
+    return stats
 
 
 @app.post("/modbus/read")
@@ -355,5 +404,6 @@ def modbus_write(payload: ModbusWriteRequest, authorization: Optional[str] = Hea
 
 @app.post("/cache/clear")
 def clear_cache() -> Dict[str, Any]:
-    DECISION_CACHE.clear()
+    with CACHE_LOCK:
+        DECISION_CACHE.clear()
     return {"cleared": True}

@@ -18,10 +18,13 @@ decision = {
 
 # MQTT command/setpoint publish: actuator-like topics are treated similarly to
 # Modbus writes and require a maintenance window and low risk.
+# context_dependent: reads input.environment.maintenance_window, so the PEP
+# structurally refuses to cache this decision regardless of TTL.
 decision = {
   "allow": true,
   "mode": "allow",
   "ttl": 0,
+  "context_dependent": true,
   "reason": "mqtt_command_publish_allowed_no_cache"
 } {
   input.protocol == "mqtt"

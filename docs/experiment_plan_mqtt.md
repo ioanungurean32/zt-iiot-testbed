@@ -1,17 +1,23 @@
 # MQTT Experiment Plan
 
-This adds a lightweight MQTT vertical slice to the Modbus prototype.
+The MQTT vertical slice. For the full, current reproduction workflow (matched
+baselines, trials, saturation, outage lifecycle) see
+`docs/experiment_reproduction.md`; run everything via
+`scripts/run_full_evaluation.ps1`.
 
 ## Architecture
 
-MQTT client/loadgen -> MQTT PEP -> JWT verification + decision cache + OPA/PDP -> Mosquitto broker
+MQTT client/loadgen -> MQTT PEP -> ES256 token verification + decision cache + OPA/PDP -> Mosquitto broker
 
-The MQTT PEP is an application-level gateway used for controlled experiments. It exposes HTTP endpoints:
+The MQTT PEP is an application-level request-mediation gateway (not a transparent
+proxy). A matched pass-through baseline (`mqtt-gw`, port 8091) runs the same image
+with enforcement disabled to isolate the security overhead. HTTP endpoints:
 
 - `POST /mqtt/publish`
 - `POST /mqtt/authorize-subscribe`
 - `POST /cache/clear`
 - `GET /health`
+- `GET /resource`
 
 ## Policy summary
 
@@ -24,61 +30,41 @@ The MQTT PEP is an application-level gateway used for controlled experiments. It
 
 ## Experiments
 
-Run:
+The full matched-baseline, workload, saturation, and outage experiments are run
+via `scripts/run_full_evaluation.ps1` (see `docs/experiment_reproduction.md`).
+MQTT-only examples:
 
-```powershell
-docker compose up --build -d mqtt-broker opa mqtt-pep
-```
-
-Health check:
-
-```powershell
-curl.exe http://localhost:8081/health
-```
-
-Functional tests:
+Functional test:
 
 ```powershell
 docker compose run --rm loadgen python loadgen/mqtt_tests.py
 ```
 
-Direct baseline:
+Matched-baseline latency (direct / passthrough / pep), 10 trials:
 
 ```powershell
-docker compose run --rm loadgen python loadgen/baseline_mqtt.py --n 1000
+docker compose run --rm loadgen python loadgen/harness.py --protocol mqtt --target direct      --profile steady --n 1000 --warmup 100 --trials 10
+docker compose run --rm loadgen python loadgen/harness.py --protocol mqtt --target passthrough --profile steady --n 1000 --warmup 100 --trials 10
+docker compose run --rm loadgen python loadgen/harness.py --protocol mqtt --target pep         --profile steady --n 1000 --warmup 100 --trials 10 --clear-cache
 ```
 
-PEP benchmark:
+Saturation sweep:
 
 ```powershell
-docker compose run --rm loadgen python loadgen/benchmark_mqtt_pep.py --n 1000 --clear-cache
-```
-
-PDP outage:
-
-```powershell
-docker compose start opa
-curl.exe -X POST http://localhost:8081/cache/clear
-docker compose run --rm loadgen python loadgen/prime_outage_cache.py --protocol mqtt
-docker compose stop opa
-docker compose run --rm --no-deps loadgen python loadgen/mqtt_pdp_outage_test.py
-docker compose start opa
+docker compose run --rm loadgen python loadgen/saturation_sweep.py --protocol mqtt --profile steady --levels 1,2,5,10,20,50 --n 500 --warmup 50
 ```
 
 ## Output files
 
-- `results/baseline_mqtt.csv`
-- `results/mqtt_pep_benchmark.csv`
+- `results/raw_mqtt_<target>_<profile>_c<concurrency>.csv`
+- `results/saturation_mqtt_steady.csv`
 - `results/mqtt_functional_tests.csv`
-- `results/mqtt_pdp_outage_tests.csv`
-- `results/pep_metrics.csv`
+- `results/summary_stats.csv`, `results/security_overhead.csv` (from `analyze.py`)
 
 ## Metrics
 
-- client-observed latency: `latency_ms`
-- PEP internal latency: `end_to_end_latency_ms`
-- token verification: `token_verification_ms`
-- cache lookup: `cache_lookup_ms`
-- PDP decision time: `pdp_decision_ms`
-- MQTT forwarding time: `mqtt_forward_ms`
-- cache hit/miss behavior: `cache_status`
+- client-observed latency per request: `latency_ms` (raw), aggregated to
+  mean ± 95% CI, p50/p95/p99, and jitter (standard deviation) by `analyze.py`.
+- cache hit/miss behavior: `cache_status`.
+- isolated security overhead: `pep − passthrough` mean difference.
+- throughput and PEP CPU/RSS under load: from the saturation sweep.

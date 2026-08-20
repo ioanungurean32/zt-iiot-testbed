@@ -49,12 +49,13 @@ services:
       OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
       OPA_CONNECT_TIMEOUT: "0.10"
       OPA_READ_TIMEOUT: "0.30"
-      ZT_SECRET: dev-secret-change-me
+      ZT_PUBLIC_KEY_FILE: /keys/zt_public.pem
       RESULTS_DIR: /app/results
       CACHE_WRITES: "false"
       POLICY_VERSION: v0.1-modbus
     volumes:
       - ./results:/app/results
+      - ./keys:/keys:ro
     depends_on:
       - modbus-server
       - opa
@@ -70,11 +71,12 @@ services:
       OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
       OPA_CONNECT_TIMEOUT: "0.10"
       OPA_READ_TIMEOUT: "0.30"
-      ZT_SECRET: dev-secret-change-me
+      ZT_PUBLIC_KEY_FILE: /keys/zt_public.pem
       RESULTS_DIR: /app/results
       POLICY_VERSION: v0.1-mqtt
     volumes:
       - ./results:/app/results
+      - ./keys:/keys:ro
     depends_on:
       - mqtt-broker
       - opa
@@ -89,14 +91,123 @@ services:
       OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
       OPA_CONNECT_TIMEOUT: "0.10"
       OPA_READ_TIMEOUT: "0.30"
-      ZT_SECRET: dev-secret-change-me
+      ZT_PUBLIC_KEY_FILE: /keys/zt_public.pem
       RESULTS_DIR: /app/results
       POLICY_VERSION: v0.1-opcua
     volumes:
       - ./results:/app/results
+      - ./keys:/keys:ro
     depends_on:
       - opcua-server
       - opa
+
+  # --- Pass-through baseline gateways ---
+  # Same images as the PEPs, run with PASSTHROUGH_MODE=true on separate ports:
+  # identical HTTP intake and native-protocol translation/forwarding, but no
+  # token verification, cache, or OPA. Difference PEP - gateway isolates the
+  # incremental Zero-Trust security-processing cost. No OPA or keys required.
+  modbus-gw:
+    build: .
+    command: uvicorn src.modbus_pep:app --host 0.0.0.0 --port 8090
+    ports:
+      - "8090:8090"
+    environment:
+      MODBUS_HOST: modbus-server
+      MODBUS_PORT: 5020
+      PASSTHROUGH_MODE: "true"
+    depends_on:
+      - modbus-server
+
+  mqtt-gw:
+    build: .
+    command: uvicorn src.mqtt_pep:app --host 0.0.0.0 --port 8091
+    ports:
+      - "8091:8091"
+    environment:
+      MQTT_HOST: mqtt-broker
+      MQTT_PORT: 1883
+      PASSTHROUGH_MODE: "true"
+    depends_on:
+      - mqtt-broker
+
+  opcua-gw:
+    build: .
+    command: uvicorn src.opcua_pep:app --host 0.0.0.0 --port 8092
+    ports:
+      - "8092:8092"
+    environment:
+      OPCUA_ENDPOINT: opc.tcp://opcua-server:4840/zt-iiot/opcua/server/
+      PASSTHROUGH_MODE: "true"
+    depends_on:
+      - opcua-server
+
+  # --- Transparent native-wire Modbus PEP (v2.1.0) ---
+  # Protected Modbus device reachable ONLY via the internal plc_net, i.e. only
+  # the transparent proxy can reach it. A client that connects directly is
+  # refused (DNS/route unavailable on the default network), which is how
+  # non-bypassability is demonstrated by loadgen/modbus_proxy_tests.py.
+  modbus-plc:
+    build: .
+    command: python src/modbus_server.py
+    environment:
+      MODBUS_HOST: 0.0.0.0
+      MODBUS_PORT: 5020
+    networks:
+      - plc_net
+
+  # Transparent Modbus/TCP proxy PEP: parses the function code/address from the
+  # wire, enforces ABAC/OPA (token + cache + fail-safe), and forwards allowed
+  # frames to modbus-plc. Unmodified pymodbus clients connect to port 5030 as if
+  # it were the PLC; the admin side channel (token/context/cache) is on 8083.
+  modbus-proxy-pep:
+    build: .
+    command: python src/modbus_proxy_pep.py
+    ports:
+      - "5030:5030"
+      - "8083:8083"
+    environment:
+      PROXY_LISTEN_PORT: 5030
+      PROXY_ADMIN_PORT: 8083
+      MODBUS_UPSTREAM_HOST: modbus-plc
+      MODBUS_UPSTREAM_PORT: 5020
+      OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
+      OPA_CONNECT_TIMEOUT: "0.10"
+      OPA_READ_TIMEOUT: "0.30"
+      ZT_PUBLIC_KEY_FILE: /keys/zt_public.pem
+      RESULTS_DIR: /app/results
+      POLICY_VERSION: v0.1-modbus
+    volumes:
+      - ./results:/app/results
+      - ./keys:/keys:ro
+    networks:
+      - default
+      - plc_net
+    depends_on:
+      - modbus-plc
+      - opa
+
+  # Native pass-through proxy baseline: same image with PASSTHROUGH_MODE=true
+  # (identical wire parse/forward path, no token verification, cache, or OPA).
+  # native-pep minus native-passthrough isolates the native-wire security cost.
+  modbus-proxy-gw:
+    build: .
+    command: python src/modbus_proxy_pep.py
+    ports:
+      - "5031:5031"
+    environment:
+      PROXY_LISTEN_PORT: 5031
+      PROXY_ADMIN_PORT: 8084
+      MODBUS_UPSTREAM_HOST: modbus-plc
+      MODBUS_UPSTREAM_PORT: 5020
+      PASSTHROUGH_MODE: "true"
+      RESULTS_DIR: /app/results
+    volumes:
+      - ./results:/app/results
+    networks:
+      - default
+      - plc_net
+    depends_on:
+      - modbus-plc
 
   loadgen:
     build: .
@@ -110,10 +221,22 @@ services:
       MQTT_HOST: mqtt-broker
       MQTT_PORT: 1883
       OPCUA_ENDPOINT: opc.tcp://opcua-server:4840/zt-iiot/opcua/server/
-      ZT_SECRET: dev-secret-change-me
+      ZT_PRIVATE_KEY_FILE: /keys/zt_private.pem
+      KEYS_DIR: /keys
       RESULTS_DIR: /app/results
+      # Transparent native-wire Modbus PEP endpoints (v2.1.0). modbus-plc is
+      # intentionally NOT reachable from loadgen (internal plc_net), so the
+      # bypass test in modbus_proxy_tests.py fails to connect directly.
+      MODBUS_PROXY_PEP_HOST: modbus-proxy-pep
+      MODBUS_PROXY_PEP_PORT: 5030
+      MODBUS_PROXY_PEP_ADMIN: http://modbus-proxy-pep:8083
+      MODBUS_PROXY_GW_HOST: modbus-proxy-gw
+      MODBUS_PROXY_GW_PORT: 5031
+      MODBUS_PLC_HOST: modbus-plc
+      MODBUS_PLC_PORT: 5020
     volumes:
       - ./results:/app/results
+      - ./keys:/keys
     depends_on:
       - modbus-server
       - modbus-pep
@@ -121,3 +244,13 @@ services:
       - mqtt-pep
       - opcua-server
       - opcua-pep
+      - modbus-proxy-pep
+      - modbus-proxy-gw
+
+# Internal-only network for the protected Modbus device (v2.1.0). Services not
+# listing a `networks:` key stay on the auto-created `default` network; only the
+# transparent proxy PEP/GW join both `default` and `plc_net`, so modbus-plc is
+# reachable exclusively through the proxy (demonstrating non-bypassability).
+networks:
+  plc_net:
+    internal: true

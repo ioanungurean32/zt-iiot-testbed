@@ -1,3 +1,0 @@
-test,status_code,decision,reason,cache_status,decision_source,pdp_available,latency_ms
-pdp_down_cached_telemetry_publish_allowed,200,allow,mqtt_telemetry_publish_allowed,hit,cache,not_queried,33.705037
-pdp_down_command_publish_fail_closed,403,deny,pdp_unavailable_fail_safe,none,pdp,False,414.855171

@@ -1,9 +1,9 @@
 cff-version: 1.2.0
-title: "ZT-IIoT Multi-Protocol Testbed: Protocol-Aware Zero Trust Prototype for Modbus/TCP, MQTT, and OPC UA"
+title: "ZT-IIoT Multi-Protocol Testbed: Zero Trust Prototype for Modbus/TCP, MQTT, and OPC UA"
 message: "If you use this testbed, please cite the associated manuscript and this software testbed."
 type: software
-version: "1.4.3"
-date-released: "2026-07-08"
+version: "2.1.0"
+date-released: "2026-08-20"
 doi: "10.5281/zenodo.21300010"
 authors:
   - family-names: "UNGUREAN"
@@ -13,4 +13,4 @@ authors:
 license: MIT
 repository-code: "https://github.com/ioanungurean32/zt-iiot-testbed"
 url: "https://usv.ro/en/"
-abstract: "A Docker-based multi-protocol testbed for evaluating a protocol-aware Zero Trust IIoT prototype over Modbus/TCP, MQTT, and OPC UA."
+abstract: "A Docker-based multi-protocol testbed for evaluating a Zero Trust IIoT prototype over Modbus/TCP, MQTT, and OPC UA, with matched baselines that isolate the security-processing overhead, asymmetric (ES256) trust tokens, concurrency/saturation measurements, and a PDP-outage fail-safe lifecycle. Version 2.1.0 adds a transparent native-wire protocol-aware Modbus/TCP PEP that parses function codes from the wire and enforces policy on unmodified clients, with a demonstrated non-bypassability check."

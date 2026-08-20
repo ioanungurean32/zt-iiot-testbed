@@ -23,10 +23,15 @@ decision = {
 }
 
 # Low-risk maintenance engineers may write a restricted setpoint range during a maintenance window.
+# context_dependent flags this decision as environment-dependent (it reads
+# input.environment.maintenance_window); the PEP structurally refuses to cache
+# any decision carrying this flag, so the result cannot be reused after the
+# maintenance window closes, independent of its TTL.
 decision = {
   "allow": true,
   "mode": "allow",
   "ttl": 0,
+  "context_dependent": true,
   "reason": "maintenance_write_allowed_no_write_cache"
 } {
   input.protocol == "modbus"

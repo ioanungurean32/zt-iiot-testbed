@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Experiment outputs: published alongside the code for reproducibility.
+
+# Internal-only docs (not published to the public repository)
+docs/git_publish_ro.md
+docs/submission_note.md
+
+# Manuscript, reviews, and response letter (not published to the public repository)
+paper/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+
+# Trust-token signing keys (generated locally; never commit private keys)
+keys/
+
+# Docker/local
+*.pid
