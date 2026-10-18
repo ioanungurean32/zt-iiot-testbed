@@ -1,6 +1,6 @@
 """Minimal Modbus/TCP server with holding registers for the testbed.
 
-Logical mapping used in the paper/prototype:
+Logical mapping used in the prototype:
 - register 40001 -> internal offset 0
 - register 40002 -> internal offset 1
 - ...

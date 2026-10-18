@@ -1,0 +1,9 @@
+test,expected,observed,result
+wire_authorized_read,allow,allow,PASS
+wire_write_within_maintenance,allow,allow,PASS
+wire_write_outside_maintenance,block,block,PASS
+wire_high_risk_write,block,block,PASS
+wire_critical_risk_read,block,block,PASS
+wire_failed_attestation,block,block,PASS
+wire_expired_token,block,block,PASS
+wire_direct_bypass_blocked,block,block,PASS

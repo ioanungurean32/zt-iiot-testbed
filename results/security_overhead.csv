@@ -1,9 +1,9 @@
 protocol,profile,concurrency,pep_target,baseline_target,security_overhead_mean_ms,ci95_ms,passthrough_mean_ms,pep_mean_ms,passthrough_p95_ms,pep_p95_ms,passthrough_p99_ms,pep_p99_ms
-modbus,cold,1,native-pep,native-passthrough,9.68,0.3281,6.8336,16.5136,9.2657,20.7889,10.7861,23.8472
-modbus,steady,1,native-pep,native-passthrough,5.0926,0.2344,6.7057,11.7983,9.3992,14.8694,10.6464,16.6151
-modbus,cold,1,pep,passthrough,17.1894,1.0416,3.2963,20.4857,4.3243,26.4589,4.8377,30.3248
-modbus,steady,1,pep,passthrough,12.1402,0.2477,3.1628,15.303,4.0937,18.9146,4.6595,21.8177
-mqtt,cold,1,pep,passthrough,15.7315,0.2843,3.0137,18.7452,3.9682,23.0304,4.552,25.8939
-mqtt,steady,1,pep,passthrough,11.8137,0.4292,3.0729,14.8866,3.9712,18.6049,4.486,21.2613
-opcua,cold,1,pep,passthrough,17.8257,0.505,9.4353,27.261,11.7099,33.5811,13.5462,37.2325
-opcua,steady,1,pep,passthrough,13.5084,0.5686,9.4541,22.9625,11.9049,27.9839,13.6534,31.4494
+modbus,cold,1,native-pep,native-passthrough,8.2537,0.1695,5.7808,14.0345,7.3474,16.8132,8.5763,19.0328
+modbus,steady,1,native-pep,native-passthrough,4.6892,0.2014,5.7212,10.4104,7.2099,13.0159,8.4468,14.9067
+modbus,cold,1,pep,passthrough,14.4283,0.2676,3.2154,17.6437,4.1506,20.9488,4.7157,23.4159
+modbus,steady,1,pep,passthrough,10.1238,0.2004,3.2026,13.3264,4.0846,15.9941,4.5926,18.1216
+mqtt,cold,1,pep,passthrough,14.2118,0.2367,3.1133,17.3251,4.006,20.5919,4.5006,23.3215
+mqtt,steady,1,pep,passthrough,9.7575,0.2375,3.1508,12.9083,4.1295,15.3234,4.6599,17.4957
+opcua,cold,1,pep,passthrough,15.0145,0.2314,9.2343,24.2488,11.2926,29.4553,12.8011,33.1192
+opcua,steady,1,pep,passthrough,10.8466,0.2781,9.3794,20.226,11.7053,24.6702,13.1783,28.0563

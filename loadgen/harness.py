@@ -16,7 +16,8 @@ This harness supports four measurement dimensions:
 
   * Workload diversity: --profile
       steady        one cacheable read repeated (high cache-hit)
-      cold          a distinct device per request (cold-cache, all misses)
+      cold          a distinct device per request (cold-cache, all misses; miss
+                    keys are disjoint between warm-up and measured phases)
       mixed         alternating cacheable read / non-cacheable write
       hitratio:P    reuse the cacheable key with probability P, else a new
                     device (controlled cache-hit ratio, 0.0 <= P <= 1.0)
@@ -228,6 +229,10 @@ def _write_req(protocol: str, device: str) -> Dict[str, Any]:
 
 
 def generate_plan(protocol: str, profile: str, n: int, seed: int) -> List[Dict[str, Any]]:
+    """Build a request plan. Every miss key embeds the plan seed, so distinct
+    plans (warm-up vs. measured phase, successive trials, saturation levels)
+    never share a miss key: warm-up state cannot leak into the measured phase,
+    and the cold profile is a true all-miss workload (cache-hit ratio 0)."""
     rnd = random.Random(seed)
     plan: List[Dict[str, Any]] = []
     if profile == "steady":
@@ -235,7 +240,7 @@ def generate_plan(protocol: str, profile: str, n: int, seed: int) -> List[Dict[s
             plan.append(_base_read(protocol, "dev_steady"))
     elif profile == "cold":
         for i in range(n):
-            plan.append(_base_read(protocol, f"dev_cold_{i}"))
+            plan.append(_base_read(protocol, f"dev_cold_s{seed}_{i}"))
     elif profile == "mixed":
         for i in range(n):
             if i % 2 == 0:
@@ -248,7 +253,7 @@ def generate_plan(protocol: str, profile: str, n: int, seed: int) -> List[Dict[s
             if rnd.random() < p_hit:
                 plan.append(_base_read(protocol, "dev_hit"))
             else:
-                plan.append(_base_read(protocol, f"dev_miss_{i}"))
+                plan.append(_base_read(protocol, f"dev_miss_s{seed}_{i}"))
     else:
         raise ValueError(f"unknown profile: {profile}")
     return plan

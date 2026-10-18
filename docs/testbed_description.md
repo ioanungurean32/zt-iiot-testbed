@@ -47,7 +47,11 @@ repeated trials.
 - **PDP-unavailability lifecycle** (container shutdown and network partition):
   cached observation continues, control operations fail closed with repetition
   statistics, concurrent-outage requests do not fail open or exhaust threads,
-  cache expiry is not served stale, and recovery is characterized.
+  cache expiry is not served stale, and the time to restored protected-write
+  availability is measured over repeated partition and shutdown cycles.
+- **Saturation beyond the cache-dominated workload**: miss-heavy (cold) and
+  write-heavy (mixed) sweeps and the PDP capacity measured alone, so PEP- and
+  PDP-bound regimes can be distinguished on the evaluated host.
 
 ## What the testbed does not claim
 

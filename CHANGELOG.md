@@ -1,5 +1,44 @@
 # Changelog
 
+## v2.2.0
+
+Corrects two measurement defects and adds new measurements. No architectural or
+policy change. All
+results in `results/` were regenerated in a single run of
+`scripts/run_full_evaluation.ps1`; the complete v2.1.0 result set is kept in
+`results/results_v2.1.0/` for comparison.
+
+**Cold / hit-ratio workloads (corrected)**
+- `loadgen/harness.py`: miss keys now embed the plan seed, so warm-up and
+  measured phases (and successive trials and saturation levels) never share a
+  key. In v2.1.0 the warm-up reused `dev_cold_0..99`, so the first 100 measured
+  "cold" requests were cache hits (hit ratio 0.10, not 0); the same overlap
+  affected the `hitratio:P` miss keys. The native-wire cold path (cache
+  disabled) was not affected.
+- `loadgen/analyze.py` warns when a PEP cold run has a non-zero hit ratio.
+
+**PDP-outage recovery (corrected and measured)**
+- The partition variant reconnected OPA with a plain `docker network connect`,
+  which drops the Compose service alias `opa`; the PEP could not resolve its PDP
+  after the partition healed, so protected writes stayed fail-closed (recorded
+  as `maint_write_after_recovery = 403`). Reconnection now uses `--alias opa`.
+- `scripts/pdp_recovery_cycles.ps1` (new): repeated partition and shutdown
+  cycles; per cycle it checks fail-closed behaviour and measures the time from
+  PDP restoration to the first successful protected write
+  (`results/pdp_recovery_cycles.csv`), plus one diagnostic cycle with the
+  v2.1.0 reconnection.
+
+**Saturation beyond the cache-dominated workload (new)**
+- `loadgen/saturation_sweep.py` reports the achieved cache-hit ratio and is run
+  with the miss-heavy `cold` and write-heavy `mixed` profiles.
+- `loadgen/pdp_capacity.py` (new): OPA decision throughput/latency under
+  concurrency without a PEP in the path (`results/pdp_capacity*.csv`).
+- `scripts/run_v2.2.0_experiments.ps1` (new) re-runs only the affected
+  measurements, adds the new ones, samples `docker stats` of OPA and the PEPs
+  during the sweeps.
+- `scripts/run_full_evaluation.ps1` now also runs the recovery cycles, the
+  miss-heavy/write-heavy saturation sweeps, and the PDP capacity sweep.
+
 ## v2.1.0
 
 Adds a genuinely transparent, native-wire protocol-aware PEP for Modbus/TCP: an
@@ -127,10 +166,10 @@ signing, service topology, and the experiment workflow.
 
 ## v0.1.1
 
-- Initial supplementary testbed.
+- Initial testbed.
 - Includes Modbus/TCP, MQTT, and OPC UA protocol vertical slices.
 - Includes protocol-aware PEPs, OPA/Rego policies, token generation, cache behavior, latency benchmarks, functional authorization tests, and PDP outage tests.
-- Docker Compose testbed prepared for Git hosting and journal supplementary material.
+- Docker Compose testbed prepared for Git hosting.
 
 ## v0.1.0 - PDP outage robustness patch
 

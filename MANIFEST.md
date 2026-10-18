@@ -24,6 +24,8 @@ This package contains a Zero Trust IIoT experimental testbed for three represent
 | `docs/testbed_description.md` | Testbed scope, claims, and limitations. |
 | `docs/token_schema.md` | ES256 trust-token schema and key management. |
 | `scripts/run_full_evaluation.ps1` | Single orchestrator for the full evaluation. |
+| `scripts/pdp_recovery_cycles.ps1` | PDP-outage recovery over repeated partition and shutdown cycles. |
+| `scripts/run_v2.2.0_experiments.ps1` | Re-runs only the experiments affected by the v2.2.0 corrections. |
 
 ## Source code
 
@@ -47,6 +49,7 @@ This package contains a Zero Trust IIoT experimental testbed for three represent
 | `loadgen/analyze.py` | Statistics (mean ± 95% CI, percentiles, jitter) and isolated security overhead. |
 | `loadgen/saturation_sweep.py` | Concurrency/throughput/saturation sweep with PEP CPU/RSS and recovery. |
 | `loadgen/pdp_outage_lifecycle.py` | PDP-unavailability lifecycle (shutdown/partition phases). |
+| `loadgen/pdp_capacity.py` | OPA decision throughput/latency under concurrency, without a PEP in the path. |
 | `loadgen/cache_invalidation_tests.py` | Cache-invalidation correctness (context/risk). |
 | `loadgen/token_security_tests.py` | ES256 token-security correctness. |
 | `loadgen/{pep,mqtt,opcua}_tests.py` | Functional allow/deny tests per protocol (HTTP gateways). |
@@ -60,4 +63,9 @@ for reproducibility: raw per-request latency (`raw_*.csv`), aggregated statistic
 (`summary_stats.csv`), isolated security overhead (`security_overhead.csv`),
 saturation sweeps (`saturation_*.csv`), correctness suites
 (`cache_invalidation_tests.csv`, `token_security_tests.csv`), functional results,
-and the PDP-outage lifecycle (`pdp_outage_lifecycle.csv`).
+the PDP-outage lifecycle (`pdp_outage_lifecycle.csv`), recovery over repeated
+outage cycles (`pdp_recovery_cycles.csv`), and the PDP capacity sweep
+(`pdp_capacity*.csv`).
+
+The complete v2.1.0 result set is kept in `results/results_v2.1.0/` for comparison with the
+corrected v2.2.0 results.

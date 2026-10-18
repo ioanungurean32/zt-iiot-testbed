@@ -1,11 +1,19 @@
-# ZT-IIoT Multi-Protocol Testbed (v2.1.0)
+# ZT-IIoT Multi-Protocol Testbed (v2.2.0)
 
 Zero Trust IIoT prototype for **Modbus/TCP**, **MQTT**, and **OPC UA**, with
 matched baselines that isolate the security-processing cost, asymmetric (ES256)
 trust tokens, a concurrency/saturation sweep, and a PDP-outage lifecycle
-evaluation. Version 2.1.0 adds a **transparent native-wire protocol-aware Modbus/TCP
+evaluation. Version 2.1.0 added a **transparent native-wire protocol-aware Modbus/TCP
 PEP** that parses function codes directly from the wire, enforces policy on
 **unmodified** clients, and demonstrates non-bypassability.
+
+**Version 2.2.0** corrects two measurement defects (overlapping warm-up/measured
+keys in the cold workload; PDP re-attached without its service alias in the
+network-partition test), adds recovery over repeated outage cycles, miss-heavy and
+write-heavy saturation sweeps, and a PDP-only capacity sweep, and ships a complete
+result set regenerated in a single run of `scripts/run_full_evaluation.ps1`. The
+v2.1.0 result set is kept in `results/results_v2.1.0/` for comparison. See
+`CHANGELOG.md`.
 
 ## Authors and affiliation
 
@@ -108,6 +116,8 @@ Generated outputs are written to `results/*.csv`:
 | `modbus_proxy_metrics.csv` | Per-request internals of the transparent Modbus PEP (token/cache/forward timing) |
 | `*_functional_tests.csv` | Functional authorization results per protocol (HTTP gateways) |
 | `pdp_outage_lifecycle.csv` | Outage lifecycle (shutdown/partition, fail-closed stats, recovery) |
+| `pdp_recovery_cycles.csv` | Time to restored protected-write availability over repeated outage cycles |
+| `pdp_capacity*.csv` | PDP (OPA) decision capacity under concurrency, without a PEP |
 
 ## Documentation
 

@@ -83,7 +83,7 @@ docker compose run --rm loadgen python loadgen/pdp_outage_lifecycle.py --phase r
 Write-Host "== PDP-outage lifecycle: network-partition variant =="
 # Auto-detect the compose network and OPA container so a naming mismatch does
 # not abort the run after all other data is already collected.
-$net = docker network ls --format "{{.Name}}" | Where-Object { $_ -like "*${project}*" } | Select-Object -First 1
+$net = docker network ls --format "{{.Name}}" | Where-Object { $_ -eq "${project}_default" } | Select-Object -First 1
 $opa = docker ps --format "{{.Names}}" | Where-Object { $_ -like "*${project}*opa*" } | Select-Object -First 1
 try {
   if (-not $net -or -not $opa) { throw "could not detect network ($net) or opa container ($opa)" }
@@ -91,13 +91,26 @@ try {
   docker compose run --rm -e OUTAGE_VARIANT=partition loadgen python loadgen/pdp_outage_lifecycle.py --phase prime
   docker network disconnect $net $opa
   docker compose run --rm --no-deps -e OUTAGE_VARIANT=partition loadgen python loadgen/pdp_outage_lifecycle.py --phase outage-seq --reps 30
-  docker network connect $net $opa
+  # --alias restores the Compose service name the PEPs resolve; a plain
+  # `docker network connect` drops it and the PDP stays unreachable by name.
+  docker network connect --alias opa $net $opa
   Start-Sleep -Seconds 5
   docker compose run --rm -e OUTAGE_VARIANT=partition loadgen python loadgen/pdp_outage_lifecycle.py --phase recovery
 } catch {
   Write-Host "Network-partition variant skipped: $_"
   Write-Host "(The container-shutdown outage lifecycle above already completed.)"
 }
+
+Write-Host "== PDP-outage recovery over repeated cycles (partition + shutdown) =="
+& .\scripts\pdp_recovery_cycles.ps1 -Cycles 10 -TimeoutSec 60
+
+Write-Host "== Miss-heavy / write-heavy saturation and PDP capacity =="
+foreach ($proto in $protocols) {
+  docker compose run --rm loadgen python loadgen/saturation_sweep.py --protocol $proto --profile cold --levels 1,2,5,10,20,50 --n 500 --warmup 50
+}
+docker compose run --rm loadgen python loadgen/saturation_sweep.py --protocol modbus --profile mixed --levels 1,2,5,10,20,50 --n 500 --warmup 50
+docker compose run --rm loadgen python loadgen/pdp_capacity.py --levels 1,2,5,10,20,50 --n 2000
+docker compose run --rm loadgen python loadgen/pdp_capacity.py --levels 1,2,5,10,20,50 --n 2000 --write-share 0.5
 
 Write-Host "== Done. Raw data and summaries are in .\results\ =="
 Get-ChildItem .\results\ | Select-Object Name, Length

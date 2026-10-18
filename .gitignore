@@ -10,13 +10,6 @@ venv/
 
 # Experiment outputs: published alongside the code for reproducibility.
 
-# Internal-only docs (not published to the public repository)
-docs/git_publish_ro.md
-docs/submission_note.md
-
-# Manuscript, reviews, and response letter (not published to the public repository)
-paper/
-
 # OS/editor files
 .DS_Store
 Thumbs.db

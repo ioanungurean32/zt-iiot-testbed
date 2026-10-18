@@ -1,0 +1,19 @@
+variant,phase,check,result,detail
+shutdown,prime,read_first,200,miss 35.0ms
+shutdown,prime,read_cached,200,hit 18.3ms
+shutdown,outage_seq,cached_read_served,200,hit 40.5ms (expect 200/hit)
+shutdown,outage_seq,write_fail_closed_rate,30/30,expect all 403
+shutdown,outage_seq,fail_closed_latency_ms,stats,mean=428.8 p50=428.4 p95=432.8 p99=434.7 sd=2.6 n=30
+shutdown,outage_conc,concurrent_fail_closed,20/20,expect all 403
+shutdown,outage_conc,concurrent_fail_open,0,expect 0 (never fail-open)
+shutdown,outage_conc,max_latency_ms,1164.5,wall=1230.1ms for 20 simultaneous
+shutdown,outage_expiry,read_after_expiry_fail_closed,403,none 425.6ms (expect 403; not served stale)
+shutdown,recovery,read_after_recovery,200,miss 43.1ms (expect 200)
+shutdown,recovery,maint_write_after_recovery,200,27.7ms (expect 200)
+partition,prime,read_first,200,miss 40.5ms
+partition,prime,read_cached,200,hit 23.5ms
+partition,outage_seq,cached_read_served,200,hit 28.6ms (expect 200/hit)
+partition,outage_seq,write_fail_closed_rate,30/30,expect all 403
+partition,outage_seq,fail_closed_latency_ms,stats,mean=427.4 p50=426.9 p95=431.7 p99=432.7 sd=2.6 n=30
+partition,recovery,read_after_recovery,200,hit 33.1ms (expect 200)
+partition,recovery,maint_write_after_recovery,403,428.0ms (expect 200)

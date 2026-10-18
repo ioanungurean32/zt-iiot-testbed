@@ -17,6 +17,11 @@ reflects OPA saturation from the data plane's perspective.
 Usage:
   python loadgen/saturation_sweep.py --protocol modbus --profile steady \
       --levels 1,2,5,10,20,50 --n 500 --warmup 50
+
+Besides the cache-dominated steady profile, the sweep accepts the miss-heavy
+cold profile (every request a PDP evaluation) and the write-heavy mixed profile
+(every other request a non-cacheable write), so PEP saturation can be compared
+with the PDP-bound case; see also loadgen/pdp_capacity.py for the PDP alone.
 """
 
 from __future__ import annotations
@@ -78,6 +83,7 @@ def run_level(protocol: str, profile: str, n: int, warmup: int, concurrency: int
 
     lat = [r["latency_ms"] for r in results]
     ok = sum(1 for r in results if r["status"] == 200)
+    hits = sum(1 for r in results if r["cache_status"] == "hit")
     cpu_delta = None
     if r0 and r1 and r0.get("cpu_user_s") is not None:
         cpu_delta = round((r1["cpu_user_s"] + r1["cpu_sys_s"]) - (r0["cpu_user_s"] + r0["cpu_sys_s"]), 4)
@@ -86,6 +92,7 @@ def run_level(protocol: str, profile: str, n: int, warmup: int, concurrency: int
         "requests": n,
         "throughput_rps": round(n / span, 2) if span > 0 else 0.0,
         "success_rate": round(ok / n, 4),
+        "cache_hit_ratio": round(hits / n, 4),
         "mean_ms": round(statistics.mean(lat), 4),
         "p95_ms": round(percentile(lat, 0.95), 4),
         "p99_ms": round(percentile(lat, 0.99), 4),

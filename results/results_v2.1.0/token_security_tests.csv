@@ -1,0 +1,6 @@
+test,expected_status,observed_status,result
+valid_es256_token,200,200,PASS
+forged_wrong_key,401,401,PASS
+wrong_audience,401,401,PASS
+wrong_issuer,401,401,PASS
+hs256_algorithm_confusion,401,401,PASS

@@ -17,8 +17,7 @@ RS256/HS256-confusion attacks) and validates the issuer and audience claims.
 Each token carries a unique jti for audit/correlation. Bearer tokens remain
 replayable within their validity window by design; this residual risk is
 bounded by a short TTL and, in a production deployment, by TLS/channel binding
-or a DPoP-style per-request proof (see the manuscript's token security
-discussion).
+or a DPoP-style per-request proof.
 """
 
 from __future__ import annotations

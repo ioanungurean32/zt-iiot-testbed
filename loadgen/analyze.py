@@ -147,6 +147,13 @@ def main() -> None:
                                      "mean_ms", "ci95_ms", "p95_ms", "p99_ms", "cache_hit_ratio")})
     print(f"Wrote {out}")
 
+    # The cold profile must be a pure-miss workload on a caching PEP; a non-zero
+    # hit ratio means warm-up/measured keys overlapped and the run is not valid.
+    for s in summaries:
+        if s["profile"] == "cold" and s["target"] == "pep" and s["cache_hit_ratio"] > 0:
+            print(f"WARNING: {s['file']} is labelled cold but has cache-hit ratio "
+                  f"{s['cache_hit_ratio']}; it is not a pure-miss measurement.")
+
     # Pair each PEP target with its matched pass-through baseline by
     # (protocol, profile, concurrency) for the isolated security overhead. The
     # HTTP gateway uses pep/passthrough; the transparent native-wire proxy uses

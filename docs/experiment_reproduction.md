@@ -1,9 +1,11 @@
 # Experiment Reproduction Instructions
 
 This document describes how to reproduce the ZT-IIoT prototype evaluation
-(v2.1.0). All results are regenerated from isolated experiments over independent
-repeated trials; no table is derived from a cumulative log. v2.1.0 adds the
-transparent native-wire Modbus PEP experiments (steps 8–9).
+(v2.2.0). All results are regenerated from isolated experiments over independent
+repeated trials; no table is derived from a cumulative log. v2.1.0 added the
+transparent native-wire Modbus PEP experiments (steps 8–9); v2.2.0 corrects the
+cold workload and the partition reconnection and adds the recovery-cycle,
+miss-heavy/write-heavy saturation, and PDP-capacity experiments.
 
 ## Requirements
 
@@ -76,11 +78,26 @@ docker compose run --rm loadgen python loadgen/harness.py `
 `mixed` | `hitratio:P`; `--concurrency C` runs C concurrent clients. Each run
 writes `results/raw_<protocol>_<target>_<profile>_c<concurrency>.csv`.
 
+Miss keys embed the plan seed, so the warm-up and measured phases never share a
+key: `cold` is a pure-miss workload (cache-hit ratio 0 on the PEP) and the
+achieved ratio of `hitratio:P` equals P up to sampling noise. `analyze.py` warns
+if a PEP cold run reports a non-zero hit ratio.
+
 ### 5. Concurrency / saturation sweep
 
 ```powershell
 docker compose run --rm loadgen python loadgen/saturation_sweep.py `
   --protocol modbus --profile steady --levels 1,2,5,10,20,50 --n 500 --warmup 50
+```
+
+Run it with `--profile cold` (miss-heavy: every request is a PDP evaluation) and
+`--profile mixed` (write-heavy: every other request is a non-cacheable write) to
+characterize saturation beyond the cache-dominated workload. The PDP capacity
+alone, without a PEP in the path, is measured with:
+
+```powershell
+docker compose run --rm loadgen python loadgen/pdp_capacity.py --levels 1,2,5,10,20,50 --n 2000
+docker compose run --rm loadgen python loadgen/pdp_capacity.py --levels 1,2,5,10,20,50 --n 2000 --write-share 0.5
 ```
 
 ### 6. Statistical analysis
@@ -99,6 +116,36 @@ Orchestrated with OPA stop/start (and, for the partition variant, network
 disconnect/reconnect); see `scripts/run_full_evaluation.ps1` for the full
 sequence. The phases are `prime`, `outage-seq`, `outage-conc`, `outage-expiry`,
 and `recovery` (`loadgen/pdp_outage_lifecycle.py --phase <name>`).
+
+The partition variant must reconnect OPA with `docker network connect --alias
+opa ...`: without the alias the Compose service name no longer resolves and the
+PDP stays unreachable after the partition heals.
+
+Recovery over repeated outage cycles is measured from the host:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\pdp_recovery_cycles.ps1 -Cycles 10 -TimeoutSec 60
+```
+
+Each cycle primes a cached read, breaks the PDP (partition or shutdown), checks
+that the protected write fails closed while the cached read is served, restores
+the PDP, and probes the maintenance write until it returns 200. The recovery
+time runs from the moment the restore command returns to the first successful
+protected write; its resolution is bounded by the probe duration (a failing
+probe takes about one PDP deadline). The CSV also records whether `opa`
+resolves inside the PEP after the cycle.
+
+### 7b. Corrected and new experiments only
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_v2.2.0_experiments.ps1
+```
+
+Re-runs the cold and hit-ratio profiles, the partition lifecycle, the recovery
+cycles, the miss-heavy/write-heavy saturation sweeps, and the PDP capacity sweep,
+leaving every other result untouched. The results published with v2.2.0 come
+from a complete run of `scripts/run_full_evaluation.ps1`; the v2.1.0 result set
+is kept in `results/results_v2.1.0/`.
 
 ### 8. Transparent native-wire Modbus PEP: functional + non-bypassability
 
@@ -143,6 +190,9 @@ proxy out-of-band (the harness mints an ES256 token and pushes it to
 | `results/modbus_proxy_tests.csv` | Transparent native-wire PEP functional + non-bypassability results. |
 | `results/modbus_proxy_metrics.csv` | Per-request internals of the transparent Modbus PEP. |
 | `results/pdp_outage_lifecycle.csv` | Outage lifecycle (shutdown/partition, fail-closed stats, recovery). |
+| `results/pdp_recovery_cycles.csv` | Per-cycle fail-closed checks and time to the first successful protected write after PDP restoration. |
+| `results/pdp_capacity*.csv` | OPA decision throughput and latency per concurrency level, without a PEP. |
+| `results/docker_stats_saturation.csv` | OPA/PEP CPU and memory samples during the v2.2.0 saturation sweeps. |
 
 ## Definitions and methodology notes
 

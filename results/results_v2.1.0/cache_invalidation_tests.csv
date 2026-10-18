@@ -1,0 +1,8 @@
+scenario,device,risk_score,maintenance_window,expected_cache_status,observed_cache_status,result
+A_context_prime,dev_ctx,20,False,miss,miss,PASS
+A_context_same,dev_ctx,20,False,hit,hit,PASS
+A_context_changed,dev_ctx,20,True,miss,miss,PASS
+B_riskbucket_prime,dev_risk,20,False,miss,miss,PASS
+B_riskbucket_crossed,dev_risk,40,False,miss,miss,PASS
+C_samebucket_prime,dev_same,20,False,miss,miss,PASS
+C_samebucket_change,dev_same,24,False,hit,hit,LIMITATION

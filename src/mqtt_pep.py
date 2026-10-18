@@ -2,7 +2,7 @@
 
 This prototype exposes HTTP endpoints for representative MQTT operations and
 forwards allowed publish requests to a Mosquitto broker. It mirrors the Modbus
-PEP pipeline so the paper can report comparable measurements:
+PEP pipeline so that measurements are comparable across protocols:
 - local JWT verification
 - OPA/PDP authorization
 - local decision cache for low-risk topic decisions
