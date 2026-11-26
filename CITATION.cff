@@ -3,6 +3,7 @@ title: "ZT-IIoT Multi-Protocol Testbed: Zero Trust Prototype for Modbus/TCP, MQT
 message: "If you use this testbed, please cite it using these metadata."
 type: software
 version: "2.2.1"
+doi: "10.5281/zenodo.24558475"
 authors:
   - family-names: "UNGUREAN"
     given-names: "Ioan"
