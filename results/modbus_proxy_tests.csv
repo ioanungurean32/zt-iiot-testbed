@@ -6,4 +6,14 @@ wire_high_risk_write,block,block,PASS
 wire_critical_risk_read,block,block,PASS
 wire_failed_attestation,block,block,PASS
 wire_expired_token,block,block,PASS
+wire_unbound_client_denied,block,block,PASS
+wire_binding_other_principal_not_used,block,block,PASS
+wire_binding_own_principal_used,allow,allow,PASS
+wire_binding_revoked_on_open_connection,block,block,PASS
+admin_token_without_secret_rejected,block,block,PASS
+admin_token_wrong_secret_rejected,block,block,PASS
+admin_context_without_secret_rejected,block,block,PASS
+admin_cache_without_secret_rejected,block,block,PASS
+admin_cache_clear_without_secret_rejected,block,block,PASS
+admin_rejected_binding_had_no_effect,block,block,PASS
 wire_direct_bypass_blocked,block,block,PASS

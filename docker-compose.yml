@@ -55,7 +55,7 @@ services:
       POLICY_VERSION: v0.1-modbus
     volumes:
       - ./results:/app/results
-      - ./keys:/keys:ro
+      - ./keys/public:/keys:ro
     depends_on:
       - modbus-server
       - opa
@@ -76,7 +76,7 @@ services:
       POLICY_VERSION: v0.1-mqtt
     volumes:
       - ./results:/app/results
-      - ./keys:/keys:ro
+      - ./keys/public:/keys:ro
     depends_on:
       - mqtt-broker
       - opa
@@ -96,7 +96,7 @@ services:
       POLICY_VERSION: v0.1-opcua
     volumes:
       - ./results:/app/results
-      - ./keys:/keys:ro
+      - ./keys/public:/keys:ro
     depends_on:
       - opcua-server
       - opa
@@ -158,16 +158,18 @@ services:
   # Transparent Modbus/TCP proxy PEP: parses the function code/address from the
   # wire, enforces ABAC/OPA (token + cache + fail-safe), and forwards allowed
   # frames to modbus-plc. Unmodified pymodbus clients connect to port 5030 as if
-  # it were the PLC; the admin side channel (token/context/cache) is on 8083.
+  # it were the PLC. The test-only admin side channel (identity bindings,
+  # context, cache) listens on 8083, is NOT published to the host, and requires
+  # the shared secret in keys/admin/admin_token for every state-changing request.
   modbus-proxy-pep:
     build: .
     command: python src/modbus_proxy_pep.py
     ports:
       - "5030:5030"
-      - "8083:8083"
     environment:
       PROXY_LISTEN_PORT: 5030
       PROXY_ADMIN_PORT: 8083
+      PROXY_ADMIN_TOKEN_FILE: /admin/admin_token
       MODBUS_UPSTREAM_HOST: modbus-plc
       MODBUS_UPSTREAM_PORT: 5020
       OPA_URL: http://opa:8181/v1/data/zt_iiot/authz/decision
@@ -178,7 +180,8 @@ services:
       POLICY_VERSION: v0.1-modbus
     volumes:
       - ./results:/app/results
-      - ./keys:/keys:ro
+      - ./keys/public:/keys:ro
+      - ./keys/admin:/admin:ro
     networks:
       - default
       - plc_net
@@ -230,6 +233,7 @@ services:
       MODBUS_PROXY_PEP_HOST: modbus-proxy-pep
       MODBUS_PROXY_PEP_PORT: 5030
       MODBUS_PROXY_PEP_ADMIN: http://modbus-proxy-pep:8083
+      PROXY_ADMIN_TOKEN_FILE: /keys/admin/admin_token
       MODBUS_PROXY_GW_HOST: modbus-proxy-gw
       MODBUS_PROXY_GW_PORT: 5031
       MODBUS_PLC_HOST: modbus-plc

@@ -60,8 +60,11 @@ repeated trials.
   attributes are supplied through the gateway API rather than parsed from the
   wire, and non-bypassability is assumed. The transparent native-wire proxy is
   provided for **Modbus/TCP only**; MQTT and OPC UA transparent proxies, and
-  identity binding stronger than the provisioned per-session token (e.g. a client
-  certificate over Modbus/TCP Security), remain future work.
+  identity binding stronger than the address-based binding of a token to each
+  client address (e.g. a client certificate over Modbus/TCP Security), remain
+  future work. The proxy's admin interface is a test-only provisioning channel
+  for the experiment orchestrator (unpublished port, shared secret), not a Zero
+  Trust management plane.
 - It is not certified for deployment in safety-critical OT environments; degraded
   modes and any emergency-override path are deployment responsibilities, not
   implemented or validated here.

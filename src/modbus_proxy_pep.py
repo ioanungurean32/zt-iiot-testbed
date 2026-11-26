@@ -20,16 +20,29 @@ server (``modbus-plc``) is placed on an internal Docker network reachable only b
 this proxy, so a client that tries to reach the device directly is refused
 (``modbus_proxy_tests.py`` includes the bypass check).
 
-Device identity: Modbus/TCP carries no authentication field, so the proxy binds
-the client session to a device identity and trust token supplied out-of-band via
-the admin endpoint ``/admin/token`` (the issuer, which holds the private key,
-pushes an ES256 token; the proxy holds only the public verification key, so it
-verifies but never mints). In production this binding would be a client
-certificate over Modbus/TCP Security (TLS) or an equivalent channel; the
-prototype uses a provisioned per-session token. Operational-context (environment)
-attributes are supplied by the deployment via ``/admin/context`` -- not by the
-untrusted client -- which is stricter than the HTTP gateway, where the client
-supplied ``maintenance_window`` itself.
+Device identity: Modbus/TCP carries no authentication field, so the proxy keeps
+a table of identity bindings, each mapping a client network address (the source
+IP of the TCP connection) to an ES256 trust token supplied out-of-band via the
+admin endpoint ``/admin/token`` (the issuer, which holds the private key, pushes
+the token; the proxy holds only the public verification key, so it verifies but
+never mints). Every frame is evaluated with the token bound to the address of
+the connection that carried it; a connection from an address with no binding is
+denied, and there is no process-wide fallback identity. The binding is looked up
+per frame, so removing it takes effect on connections that are already open.
+The binding is address-based, not an authentication of the TCP client: in
+production it would be a client certificate over Modbus/TCP Security (TLS) or
+an equivalent channel. Operational-context (environment) attributes describe
+the zone the proxy protects (one proxy instance per protected device) and are
+shared by all connections; they are supplied by the deployment via
+``/admin/context`` -- not by the untrusted client -- which is stricter than the
+HTTP gateway, where the client supplied ``maintenance_window`` itself.
+
+Administration: the admin endpoints are a test-only provisioning interface for
+the experiment orchestrator, not a Zero Trust management plane. The admin port
+is not published to the host, and every state-changing request must present the
+shared secret described in ``src/admin_auth.py``; requests without it are
+rejected (HTTP 401). Every state-changing admin request, accepted or rejected,
+is appended to an audit log.
 
 PASSTHROUGH_MODE: running the same image with ``PASSTHROUGH_MODE=true`` yields a
 native pass-through proxy baseline (identical parse/forward path, no token
@@ -42,6 +55,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import csv
+import ipaddress
 import json
 import os
 import socket
@@ -56,6 +70,7 @@ from typing import Any, Dict, Optional, Tuple
 
 import requests
 
+from src.admin_auth import check_bearer
 from src.auth import TokenError, decode_token
 from src.resource_stats import resource_stats
 
@@ -84,12 +99,13 @@ EXC_ILLEGAL_FUNCTION = 0x01   # policy deny / token failure on the wire
 EXC_GATEWAY_NO_RESPONSE = 0x0B  # fail-closed on PDP unavailability / upstream loss
 
 # --------------------------------------------------------------------------- #
-# Mutable runtime state (identity token + operational context), settable via the
-# admin endpoints. Modbus has no auth or context fields on the wire, so both are
-# provisioned out-of-band rather than trusted from the client.
+# Mutable runtime state (identity bindings + operational context), settable via
+# the admin endpoints. Modbus has no auth or context fields on the wire, so both
+# are provisioned out-of-band rather than trusted from the client. Bindings map a
+# client address to its token; there is deliberately no process-wide token.
 # --------------------------------------------------------------------------- #
 _STATE_LOCK = threading.Lock()
-_ACTIVE_TOKEN: Optional[str] = os.getenv("ZT_CLIENT_TOKEN")
+_BINDINGS: Dict[str, str] = {}
 _ENV_CONTEXT: Dict[str, Any] = {
     "maintenance_window": os.getenv("MAINTENANCE_WINDOW", "false").lower() == "true",
     "shift": os.getenv("SHIFT", "day"),
@@ -101,15 +117,23 @@ _ENV_CONTEXT: Dict[str, Any] = {
 _CACHE_ENABLED: bool = os.getenv("CACHE_ENABLED", "true").lower() == "true"
 
 
-def get_active_token() -> Optional[str]:
+def get_bound_token(client_addr: str) -> Optional[str]:
     with _STATE_LOCK:
-        return _ACTIVE_TOKEN
+        return _BINDINGS.get(client_addr)
 
 
-def set_active_token(token: Optional[str]) -> None:
-    global _ACTIVE_TOKEN
+def set_binding(client_addr: str, token: Optional[str]) -> None:
+    """Bind a token to a client address; a null token removes the binding."""
     with _STATE_LOCK:
-        _ACTIVE_TOKEN = token
+        if token:
+            _BINDINGS[client_addr] = token
+        else:
+            _BINDINGS.pop(client_addr, None)
+
+
+def binding_count() -> int:
+    with _STATE_LOCK:
+        return len(_BINDINGS)
 
 
 def cache_enabled() -> bool:
@@ -362,9 +386,9 @@ def process_frame(client: socket.socket, frame: bytes, handler: "ModbusPEPHandle
             decision_source = "passthrough"
             pdp_available = "n/a"
         else:
-            token = get_active_token()
+            token = get_bound_token(handler.client_addr)
             if not token:
-                token_status = "missing_token"
+                token_status = "no_identity_binding"
                 decision = {"allow": False, "mode": "deny", "reason": token_status, "ttl": 0}
                 out = exception_response(frame, EXC_ILLEGAL_FUNCTION)
             else:
@@ -432,6 +456,8 @@ class ModbusPEPHandler(socketserver.BaseRequestHandler):
 
     def setup(self) -> None:
         self._upstream: Optional[socket.socket] = None
+        # Identity bindings are keyed by the source address of this connection.
+        self.client_addr: str = self.client_address[0]
 
     def upstream(self) -> socket.socket:
         if self._upstream is None:
@@ -474,12 +500,37 @@ class ThreadingTCPServer(socketserver.ThreadingTCPServer):
 
 
 # --------------------------------------------------------------------------- #
-# Admin HTTP endpoints (health, resource stats, cache clear, token/context
-# provisioning). Modbus is a binary protocol with no place for these, so a small
-# side channel is exposed on a separate port.
+# Admin HTTP endpoints (health, resource stats, cache clear, identity-binding and
+# context provisioning). Modbus is a binary protocol with no place for these, so
+# a small test-only side channel is exposed on a separate, unpublished port.
+# GET /health and GET /resource are read-only; every POST requires the shared
+# admin secret (src/admin_auth.py) and is audit-logged, accepted or rejected.
 # --------------------------------------------------------------------------- #
+_AUDIT_FIELDS = ["timestamp_unix", "source", "method", "path", "status", "outcome", "client"]
+_AUDIT_LOCK = threading.Lock()
+
+
+def log_admin_audit(row: Dict[str, Any]) -> None:
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    path = RESULTS_DIR / "modbus_proxy_admin_audit.csv"
+    record = {f: row.get(f, "") for f in _AUDIT_FIELDS}
+    record["timestamp_unix"] = time.time()
+    with _AUDIT_LOCK:
+        needs_header = not path.exists() or path.stat().st_size == 0
+        with path.open("a", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=_AUDIT_FIELDS)
+            if needs_header:
+                writer.writeheader()
+            writer.writerow(record)
+
+
 class AdminHandler(BaseHTTPRequestHandler):
-    def _send(self, code: int, obj: Dict[str, Any]) -> None:
+    def _send(self, code: int, obj: Dict[str, Any], *, outcome: str = "", client: str = "") -> None:
+        if self.command == "POST":  # audit before answering
+            log_admin_audit({
+                "source": self.client_address[0], "method": self.command, "path": self.path,
+                "status": code, "outcome": outcome or obj.get("error", "ok"), "client": client,
+            })
         body = json.dumps(obj).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
@@ -497,7 +548,7 @@ class AdminHandler(BaseHTTPRequestHandler):
                 "opa_url": OPA_URL,
                 "policy_version": POLICY_VERSION,
                 "passthrough_mode": PASSTHROUGH_MODE,
-                "has_token": get_active_token() is not None,
+                "identity_bindings": binding_count(),
                 "context": get_env_context(),
                 "cache_enabled": cache_enabled(),
                 "cache_entries": len(DECISION_CACHE),
@@ -512,9 +563,17 @@ class AdminHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         length = int(self.headers.get("Content-Length", "0") or 0)
         raw = self.rfile.read(length) if length else b""
+        auth = check_bearer(self.headers.get("Authorization"))
+        if auth != "ok":
+            # admin_disabled: no secret configured -> administration fail-closed.
+            self._send(503 if auth == "admin_disabled" else 401, {"error": auth})
+            return
         try:
             body = json.loads(raw or b"{}")
         except json.JSONDecodeError:
+            self._send(400, {"error": "invalid_json"})
+            return
+        if not isinstance(body, dict):
             self._send(400, {"error": "invalid_json"})
             return
         if self.path == "/cache/clear":
@@ -522,8 +581,24 @@ class AdminHandler(BaseHTTPRequestHandler):
                 DECISION_CACHE.clear()
             self._send(200, {"cleared": True})
         elif self.path == "/admin/token":
-            set_active_token(body.get("token"))
-            self._send(200, {"ok": True, "has_token": get_active_token() is not None})
+            # Bind (or, with a null token, unbind) the token for one client
+            # address. Without "client", the binding applies to the address the
+            # orchestrator calls from, i.e. a client co-located with it.
+            client = str(body.get("client") or self.client_address[0])
+            try:
+                client = str(ipaddress.ip_address(client))
+            except ValueError:
+                self._send(400, {"error": "invalid_client_address"}, client=client)
+                return
+            token = body.get("token")
+            if token is not None and not isinstance(token, str):
+                self._send(400, {"error": "invalid_token_field"}, client=client)
+                return
+            set_binding(client, token)
+            bound = get_bound_token(client) is not None
+            self._send(200, {"ok": True, "client": client, "bound": bound,
+                             "identity_bindings": binding_count()},
+                       outcome="bound" if bound else "unbound", client=client)
         elif self.path == "/admin/context":
             set_env_context(body)
             self._send(200, {"ok": True, "context": get_env_context()})

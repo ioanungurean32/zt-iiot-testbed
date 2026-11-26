@@ -1,11 +1,13 @@
 # Experiment Reproduction Instructions
 
 This document describes how to reproduce the ZT-IIoT prototype evaluation
-(v2.2.0). All results are regenerated from isolated experiments over independent
+(v2.2.1). All results are regenerated from isolated experiments over independent
 repeated trials; no table is derived from a cumulative log. v2.1.0 added the
 transparent native-wire Modbus PEP experiments (steps 8–9); v2.2.0 corrects the
 cold workload and the partition reconnection and adds the recovery-cycle,
-miss-heavy/write-heavy saturation, and PDP-capacity experiments.
+miss-heavy/write-heavy saturation, and PDP-capacity experiments; v2.2.1 binds
+each native-wire connection to its own client identity, restricts the proxy's
+admin interface, and re-runs only the transparent-PEP experiments (step 7c).
 
 ## Requirements
 
@@ -53,7 +55,6 @@ curl.exe http://localhost:8082/health   # opcua-pep
 curl.exe http://localhost:8090/health   # modbus-gw  (pass-through baseline)
 curl.exe http://localhost:8091/health   # mqtt-gw
 curl.exe http://localhost:8092/health   # opcua-gw
-curl.exe http://localhost:8083/health   # modbus-proxy-pep (transparent PEP admin)
 curl.exe http://localhost:8181/health   # opa (PDP)
 ```
 
@@ -147,6 +148,19 @@ leaving every other result untouched. The results published with v2.2.0 come
 from a complete run of `scripts/run_full_evaluation.ps1`; the v2.1.0 result set
 is kept in `results/results_v2.1.0/`.
 
+### 7c. Transparent Modbus PEP experiments only (v2.2.1)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\run_v2.2.1_experiments.ps1
+```
+
+Rebuilds the proxy and `loadgen` images, writes the public key and a new admin
+secret into their own directories (keeping the existing key pair), checks
+that the admin port is not reachable from the host, and re-runs the proxy test
+suite (step 8) and the native-wire latency matrix (step 9), followed by
+`analyze.py`. No other result file is touched; the superseded v2.2.0 files are
+kept in `results/results_v2.2.0/`.
+
 ### 8. Transparent native-wire Modbus PEP: functional + non-bypassability
 
 ```powershell
@@ -173,8 +187,11 @@ writes `results/raw_modbus_<target>_<profile>_c1.csv` in the same schema as
 `harness.py`, so step 6 (`analyze.py`) also reports the native-wire overhead
 (`native-pep − native-passthrough`; distinguished in `security_overhead.csv` by
 the `pep_target` column). Identity and operational context are provisioned to the
-proxy out-of-band (the harness mints an ES256 token and pushes it to
-`/admin/token`); they are never taken from the Modbus wire.
+proxy out-of-band (the harness mints an ES256 token and binds it, via
+`/admin/token`, to the address of the container its client connects from);
+they are never taken from the Modbus wire. The admin port is reachable only on
+the Compose network and every state-changing admin request carries the shared
+secret from `keys/admin/admin_token`.
 
 ## Main output files
 

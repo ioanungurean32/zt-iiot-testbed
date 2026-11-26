@@ -2,8 +2,7 @@ cff-version: 1.2.0
 title: "ZT-IIoT Multi-Protocol Testbed: Zero Trust Prototype for Modbus/TCP, MQTT, and OPC UA"
 message: "If you use this testbed, please cite it using these metadata."
 type: software
-version: "2.2.0"
-doi: "10.5281/zenodo.23448614"
+version: "2.2.1"
 authors:
   - family-names: "UNGUREAN"
     given-names: "Ioan"
@@ -12,4 +11,4 @@ authors:
 license: MIT
 repository-code: "https://github.com/ioanungurean32/zt-iiot-testbed"
 url: "https://usv.ro/en/"
-abstract: "A Docker-based multi-protocol testbed for evaluating a Zero Trust IIoT prototype over Modbus/TCP, MQTT, and OPC UA, with matched baselines that isolate the security-processing overhead, asymmetric (ES256) trust tokens, concurrency/saturation measurements, and a PDP-outage fail-safe lifecycle. Version 2.1.0 added a transparent native-wire protocol-aware Modbus/TCP PEP that parses function codes from the wire and enforces policy on unmodified clients, with a demonstrated non-bypassability check. Version 2.2.0 corrects the cold (pure-miss) workload so that warm-up and measured keys are disjoint, corrects the PDP reconnection in the network-partition test, adds recovery measurements over repeated outage cycles, miss-heavy and write-heavy saturation sweeps, and a PDP-only capacity sweep, and publishes a complete result set regenerated in a single run."
+abstract: "A Docker-based multi-protocol testbed for evaluating a Zero Trust IIoT prototype over Modbus/TCP, MQTT, and OPC UA, with matched baselines that isolate the security-processing overhead, asymmetric (ES256) trust tokens, concurrency/saturation measurements, and a PDP-outage fail-safe lifecycle. Version 2.1.0 added a transparent native-wire protocol-aware Modbus/TCP PEP that parses function codes from the wire and enforces policy on unmodified clients, with a demonstrated non-bypassability check. Version 2.2.0 corrects the cold (pure-miss) workload so that warm-up and measured keys are disjoint, corrects the PDP reconnection in the network-partition test, adds recovery measurements over repeated outage cycles, miss-heavy and write-heavy saturation sweeps, and a PDP-only capacity sweep, and publishes a complete result set regenerated in a single run. Version 2.2.1 binds each native-wire Modbus connection to the trust token of its own client address and restricts the test-only admin interface of the proxy to the orchestrator with a shared secret."

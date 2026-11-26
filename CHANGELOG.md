@@ -1,5 +1,54 @@
 # Changelog
 
+## v2.2.1
+
+Changes only the transparent native-wire Modbus PEP. No policy change and no
+change to the HTTP gateways, the PDP, or the per-frame enforcement path.
+
+**Per-client identity binding**
+- `src/modbus_proxy_pep.py`: the single process-wide token (and the
+  `ZT_CLIENT_TOKEN` fallback) is replaced by a table of identity bindings that
+  map a client address (the source IP of the TCP connection) to an ES256
+  token. Every frame is evaluated with the token bound to the address of its
+  connection; a connection from an address with no binding is denied
+  (`no_identity_binding`). The binding is looked up per frame, so removing it
+  takes effect on open connections. `/admin/token` takes an optional `client`
+  address (default: the caller's address) and a null token removes the binding.
+  The binding is address-based; it does not authenticate the TCP client.
+- The operational context remains one value per proxy instance: it describes
+  the zone of the protected device and is shared by all its connections.
+
+**Test-only admin interface**
+- `src/admin_auth.py` (new): every state-changing admin request (`/admin/token`,
+  `/admin/context`, `/admin/cache`, `/cache/clear`) must carry
+  `Authorization: Bearer <secret>`; otherwise it is rejected with 401, or 503
+  when no secret is configured. `GET /health` and `GET /resource` stay
+  read-only. Every state-changing admin request, accepted or rejected, is
+  appended to `results/modbus_proxy_admin_audit.csv`.
+- `tools/generate_keys.py` writes the key material into separate (git-ignored)
+  directories: `keys/zt_private.pem` (issuer), `keys/public/zt_public.pem`, and
+  the admin secret `keys/admin/admin_token`; `--keep-key-pair` keeps the
+  existing private key, re-derives the public key, and generates only a new
+  admin secret.
+- `docker-compose.yml`: admin port 8083 is no longer published to the host; it
+  is reachable only on the Compose network by the orchestrator (`loadgen`).
+  Every PEP now mounts only `keys/public/` (previously the whole `keys/`
+  directory, including the issuer's private key, was mounted read-only into the
+  PEPs, although they never read it); the admin secret is mounted only into the
+  transparent proxy and `loadgen`.
+
+**Tests and results**
+- `loadgen/modbus_proxy_tests.py`: new identity-binding cases (unbound client
+  denied while another address holds a valid token; own principal used, not
+  another address's; removal effective on an open connection) and admin cases
+  (missing or wrong secret rejected, with no effect).
+- `loadgen/modbus_native_harness.py`: binds the token to its own address,
+  sends the admin secret, removes the binding at the end, and fails instead of
+  silently continuing if an admin call or every measured request fails.
+- `scripts/run_v2.2.1_experiments.ps1` (new) re-runs only the proxy test suite
+  and the native-wire latency matrix, then `analyze.py`. The affected v2.2.0
+  files are kept in `results/results_v2.2.0/`.
+
 ## v2.2.0
 
 Corrects two measurement defects and adds new measurements. No architectural or

@@ -1,4 +1,4 @@
-# ZT-IIoT Multi-Protocol Testbed (v2.2.0)
+# ZT-IIoT Multi-Protocol Testbed (v2.2.1)
 
 Zero Trust IIoT prototype for **Modbus/TCP**, **MQTT**, and **OPC UA**, with
 matched baselines that isolate the security-processing cost, asymmetric (ES256)
@@ -12,8 +12,16 @@ keys in the cold workload; PDP re-attached without its service alias in the
 network-partition test), adds recovery over repeated outage cycles, miss-heavy and
 write-heavy saturation sweeps, and a PDP-only capacity sweep, and ships a complete
 result set regenerated in a single run of `scripts/run_full_evaluation.ps1`. The
-v2.1.0 result set is kept in `results/results_v2.1.0/` for comparison. See
-`CHANGELOG.md`.
+v2.1.0 result set is kept in `results/results_v2.1.0/` for comparison.
+
+**Version 2.2.1** changes only the transparent Modbus PEP: each TCP connection
+is evaluated with the trust token bound to its own client address (there is no
+process-wide identity, and a client with no binding is denied), and the
+test-only admin interface is no longer published to the host and requires a
+shared secret for every state-changing request. The proxy test suite gains
+identity-binding and admin-interface cases, and the native-wire latency matrix
+was re-run; the affected v2.2.0 files are kept in `results/results_v2.2.0/`.
+See `CHANGELOG.md`.
 
 ## Authors and affiliation
 
@@ -56,7 +64,7 @@ for the full list of what the testbed does and does not claim.
 | `mqtt-gw` | 8091 | MQTT pass-through baseline |
 | `opcua-gw` | 8092 | OPC UA pass-through baseline |
 | `modbus-plc` | (internal) | Protected Modbus device, reachable only via the transparent proxy |
-| `modbus-proxy-pep` | 5030 / 8083 | Transparent native-wire Modbus PEP (wire port / admin) |
+| `modbus-proxy-pep` | 5030 (admin 8083, internal) | Transparent native-wire Modbus PEP (wire port; test-only admin interface, not published, shared secret required) |
 | `modbus-proxy-gw` | 5031 | Transparent native pass-through baseline (`PASSTHROUGH_MODE`) |
 | `loadgen` | - | Load generator, harness, analysis, and tests |
 

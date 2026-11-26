@@ -17,9 +17,11 @@ that ``analyze.py`` computes the pooled statistics, CI, and overhead uniformly.
 
 For native-pep the harness provisions the proxy out-of-band before timing: it
 mints an ES256 token (it holds the private key; the proxy holds only the public
-key) and pushes it to the proxy's ``/admin/token`` endpoint, and sets the
-operational context via ``/admin/context``. Neither identity nor context is
-taken from the client on the wire.
+key) and binds it, via the proxy's ``/admin/token`` endpoint, to the address of
+this container, from which the measuring client connects; it sets the
+operational context via ``/admin/context`` and removes the binding when done.
+Every admin request carries the shared admin secret. Neither identity nor
+context is taken from the client on the wire.
 
 Workload profiles (reads, matching the HTTP steady/cold profiles):
   steady  the same holding register repeated  -> cache hits at the PEP
@@ -38,6 +40,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import requests
 from pymodbus.client import ModbusTcpClient
 
+from src.admin_auth import admin_headers
 from src.auth import mint_token
 
 RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "/app/results"))
@@ -61,25 +64,29 @@ def provision_pep(admin_base: str, *, device: str, role: str, risk: int) -> None
     transparent PEP before timing, so identity/context are supplied out-of-band
     rather than trusted from the Modbus wire."""
     token = mint_token(subject=device, role=role, risk_score=risk, attestation_state="valid", ttl_seconds=3600)
-    requests.post(f"{admin_base}/admin/token", json={"token": token}, timeout=5).raise_for_status()
-    requests.post(f"{admin_base}/admin/context", json={"maintenance_window": False, "shift": "day"}, timeout=5).raise_for_status()
+    hdr = admin_headers()
+    requests.post(f"{admin_base}/admin/token", json={"token": token}, headers=hdr, timeout=5).raise_for_status()
+    requests.post(f"{admin_base}/admin/context", json={"maintenance_window": False, "shift": "day"},
+                  headers=hdr, timeout=5).raise_for_status()
+
+
+def unbind_pep(admin_base: str) -> None:
+    try:
+        requests.post(f"{admin_base}/admin/token", json={"token": None}, headers=admin_headers(), timeout=5)
+    except requests.RequestException:
+        pass
 
 
 def clear_pep_cache(admin_base: str) -> None:
-    try:
-        requests.post(f"{admin_base}/cache/clear", timeout=5)
-    except requests.RequestException:
-        pass
+    requests.post(f"{admin_base}/cache/clear", headers=admin_headers(), timeout=5).raise_for_status()
 
 
 def set_pep_cache_enabled(admin_base: str, enabled: bool) -> None:
     """steady exercises the cache-hit path; cold disables the cache so every
     request is a PDP evaluation (the all-miss path), which a single provisioned
     identity over a bounded register space could not otherwise produce."""
-    try:
-        requests.post(f"{admin_base}/admin/cache", json={"enabled": enabled}, timeout=5).raise_for_status()
-    except requests.RequestException:
-        pass
+    requests.post(f"{admin_base}/admin/cache", json={"enabled": enabled},
+                  headers=admin_headers(), timeout=5).raise_for_status()
 
 
 def register_offset(profile: str, seq: int) -> int:
@@ -127,26 +134,32 @@ def main() -> None:
         set_pep_cache_enabled(admin, args.profile == "steady")
 
     all_rows: List[Dict[str, Any]] = []
-    for trial in range(args.trials):
+    try:
+        for trial in range(args.trials):
+            if admin:
+                clear_pep_cache(admin)
+            client = ModbusTcpClient(host, port=port)
+            if not client.connect():
+                raise RuntimeError(f"could not connect to {host}:{port}")
+            try:
+                if args.warmup > 0:
+                    run_trial(client, args.profile, args.warmup)  # discarded
+                results = run_trial(client, args.profile, args.n)
+            finally:
+                client.close()
+            for seq, (latency_ms, status) in enumerate(results):
+                all_rows.append({
+                    "trial": trial, "seq": seq, "protocol": "modbus", "target": args.target,
+                    "profile": args.profile, "concurrency": 1,
+                    "latency_ms": round(latency_ms, 6), "status": status, "cache_status": "native",
+                })
+            ok = sum(1 for _, s in results if s == 200)
+            print(f"trial {trial}: n={args.n} ok={ok}/{args.n}")
+            if ok == 0:
+                raise RuntimeError("every request was refused (check the identity binding / admin secret)")
+    finally:
         if admin:
-            clear_pep_cache(admin)
-        client = ModbusTcpClient(host, port=port)
-        if not client.connect():
-            raise RuntimeError(f"could not connect to {host}:{port}")
-        try:
-            if args.warmup > 0:
-                run_trial(client, args.profile, args.warmup)  # discarded
-            results = run_trial(client, args.profile, args.n)
-        finally:
-            client.close()
-        for seq, (latency_ms, status) in enumerate(results):
-            all_rows.append({
-                "trial": trial, "seq": seq, "protocol": "modbus", "target": args.target,
-                "profile": args.profile, "concurrency": 1,
-                "latency_ms": round(latency_ms, 6), "status": status, "cache_status": "native",
-            })
-        ok = sum(1 for _, s in results if s == 200)
-        print(f"trial {trial}: n={args.n} ok={ok}/{args.n}")
+            unbind_pep(admin)
 
     with out.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=list(all_rows[0].keys()))

@@ -19,7 +19,7 @@ the security overhead. HTTP endpoints: `POST /modbus/read`, `POST /modbus/write`
 `POST /cache/clear`, `GET /health`, `GET /resource` (CPU/RSS, for the saturation
 sweep).
 
-**2. Transparent native-wire PEP** (`modbus-proxy-pep`, wire port 5030, admin 8083):
+**2. Transparent native-wire PEP** (`modbus-proxy-pep`, wire port 5030, internal admin port 8083):
 
 unmodified pymodbus client -> transparent proxy (parses the function code from the wire) -> Modbus/TCP device
 
@@ -30,7 +30,11 @@ direct client-to-device connection is refused (non-bypassability). A native
 pass-through baseline (`modbus-proxy-gw`, port 5031) isolates the native-wire
 security overhead. Identity/context are provisioned out-of-band via the admin
 endpoints (`/admin/token`, `/admin/context`, `/admin/cache`, `/cache/clear`,
-`/health`, `/resource`).
+`/health`, `/resource`). Each connection is evaluated with the token bound to
+its own client address; a client with no binding is denied. The admin
+interface is a test-only provisioning channel for the orchestrator: its port is
+not published to the host, and every state-changing request requires the
+shared secret in `keys/admin/admin_token`.
 
 ## Policy summary
 

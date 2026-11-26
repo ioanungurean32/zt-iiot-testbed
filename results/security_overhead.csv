@@ -1,6 +1,6 @@
 protocol,profile,concurrency,pep_target,baseline_target,security_overhead_mean_ms,ci95_ms,passthrough_mean_ms,pep_mean_ms,passthrough_p95_ms,pep_p95_ms,passthrough_p99_ms,pep_p99_ms
-modbus,cold,1,native-pep,native-passthrough,8.2537,0.1695,5.7808,14.0345,7.3474,16.8132,8.5763,19.0328
-modbus,steady,1,native-pep,native-passthrough,4.6892,0.2014,5.7212,10.4104,7.2099,13.0159,8.4468,14.9067
+modbus,cold,1,native-pep,native-passthrough,7.9204,0.1726,5.7788,13.6992,7.3521,16.3537,8.3709,18.9212
+modbus,steady,1,native-pep,native-passthrough,4.4348,0.1454,5.8237,10.2585,7.5219,12.6915,8.6565,14.9796
 modbus,cold,1,pep,passthrough,14.4283,0.2676,3.2154,17.6437,4.1506,20.9488,4.7157,23.4159
 modbus,steady,1,pep,passthrough,10.1238,0.2004,3.2026,13.3264,4.0846,15.9941,4.5926,18.1216
 mqtt,cold,1,pep,passthrough,14.2118,0.2367,3.1133,17.3251,4.006,20.5919,4.5006,23.3215
